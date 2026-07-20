@@ -3,9 +3,8 @@
   "version": "1.0.0",
   "description": "Basic Salesforce Client to use together with sfobjects-to-typescript lib",
   "license": "ISC",
-  "author": "Murad Aliyev",
-  "type": "commonjs",
-  "main": "index.js",
+  "author": "Murad Aliyev",  
+  "main": "dist/index.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/muradaliyev/sfobjects-basic-client"

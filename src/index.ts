@@ -1,7 +1,3 @@
-import { isPlainObject, uniq } from "./utils";
-
-export type SfObjectConfig = { dateTypes: string[], dateTimeTypes: string[], timeTypes: string[], lookupTypes: Record<string, string>, childTables: Record<string, string> };
-
 type SfPrimitiveType = string | number | boolean | bigint;
 type ChildTable<O> = { totalSize: number, done: boolean, records: O[] }
 type OnlyStrings<S> = S extends string ? S : never;
@@ -133,40 +129,60 @@ type WhereProps<OO, O extends OO> = {
 
 // Basic Client
 
-function escapeVal(cfg: SfObjectConfig | undefined, k: string, v: any): string {
-
-
-    if (typeof v === 'string') {
-
-        if (cfg?.dateTypes.includes(k) || cfg?.dateTimeTypes.includes(k) || cfg?.timeTypes.includes(k)) {
-            return v;
-        }
-
-        return `'${v}'`;
-    }
-
-
-    if (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'bigint') {
-        return String(v);
-    }
-
-    if (v === null) {
-        return 'null';
-    }
-
-    throw `Unupported value type for where statement`;
-
-}
-
+export type SfObjectConfig = { dateTypes: string[], dateTimeTypes: string[], timeTypes: string[], lookupTypes: Record<string, string>, childTables: Record<string, string> };
 
 export interface ISfConnection {
     query: <R extends {}>(soql: string) => PromiseLike<{ records: R[] }>
 }
 
-export class SfBasicClient<OI> {
+export function isPlainObject(value: unknown): value is Record<string, any> {
+    if (typeof value !== 'object' || value === null) return false
 
-    constructor(private _cfg: Record<string, SfObjectConfig>, private _conn: ISfConnection) { }
+    if (Object.prototype.toString.call(value) !== '[object Object]') return false
 
+    const proto = Object.getPrototypeOf(value);
+
+    if (proto === null) return true
+
+    const Ctor = Object.prototype.hasOwnProperty.call(proto, 'constructor') && proto.constructor;
+    return (
+        typeof Ctor === 'function' &&
+        Ctor instanceof Ctor && Function.prototype.call(Ctor) === Function.prototype.call(value)
+    );
+}
+
+export class SfBasicParser<OI> {
+
+    constructor(private _cfg: Record<string, SfObjectConfig>) { }
+
+    private _escapeVal(objName: string, k: string, v: any): string {
+
+        const cfg = this._cfg[objName];
+
+        if (cfg) {
+
+            if (typeof v === 'string') {
+
+                if (cfg?.dateTypes.includes(k) || cfg?.dateTimeTypes.includes(k) || cfg?.timeTypes.includes(k)) {
+                    return v;
+                }
+
+                return `'${v}'`;
+            }
+
+
+            if (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'bigint') {
+                return String(v);
+            }
+
+            if (v === null) {
+                return 'null';
+            }
+        }
+
+        throw `Unupported value type for where statement`;
+
+    }
 
     private _constructFullQuery(
         objName: string,
@@ -225,7 +241,6 @@ export class SfBasicClient<OI> {
 
     }
 
-
     private _constructWhereStatement(
         objName: string,
         where: string | Record<string, any>,
@@ -276,7 +291,7 @@ export class SfBasicClient<OI> {
                                             isNot ? 'not (' : '',
                                             keyWithPrefix,
                                             soqlOp,
-                                            Array.isArray(value) ? `( ${value.map(v => escapeVal(oCfg, k, v)).join(',')} )` : escapeVal(oCfg, k, value),
+                                            Array.isArray(value) ? `( ${value.map(v => this._escapeVal(objName, k, v)).join(',')} )` : this._escapeVal(objName, k, value),
                                             isNot ? ')' : '',
                                         ]
                                             .filter(Boolean)
@@ -296,10 +311,10 @@ export class SfBasicClient<OI> {
 
                         }
                         else if (Array.isArray(v)) {
-                            return `${keyWithPrefix} in (${v.map(vj => escapeVal(oCfg, k, vj)).join(', ')})`;
+                            return `${keyWithPrefix} in (${v.map(vj => this._escapeVal(objName, k, vj)).join(', ')})`;
                         }
                         else {
-                            return `${keyWithPrefix} = ${escapeVal(oCfg, k, v)}`;
+                            return `${keyWithPrefix} = ${this._escapeVal(objName, k, v)}`;
                         }
                     }
                 }
@@ -319,13 +334,20 @@ export class SfBasicClient<OI> {
         }
     }
 
-    exec<Q extends SfRootQuery<OI>>(query: Q) {
-        return this._conn.query<SfRootQueryProjection<OI, Q>>(this.soql(query));
-    }
-
     soql(q: SfRootQuery<OI>) {
         const { from, select, where, limit } = q
         return this._constructFullQuery(q.from, from, select, where, limit);
+    }
+}
+
+export class SfBasicClient<OI> extends SfBasicParser<OI> {
+
+    constructor(cfg: Record<string, SfObjectConfig>, private _conn: ISfConnection) {
+        super(cfg);
+    }
+
+    exec<Q extends SfRootQuery<OI>>(query: Q) {
+        return this._conn.query<SfRootQueryProjection<OI, Q>>(this.soql(query));
     }
 
     query<Q extends SfRootQuery<OI>>(query: Q) {
@@ -335,5 +357,4 @@ export class SfBasicClient<OI> {
             soql: () => this.soql(query)
         })
     }
-
 }
