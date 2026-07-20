@@ -11,15 +11,12 @@
     "url": "https://github.com/muradaliyev/sfobjects-basic-client"
   },
   "scripts": {
-    "build": "npm run clean && tsc",
-    "validate": "npm run build && node ./dist/scripts/validate.js",
+    "build": "npm run clean && tsc",    
     "clean": "rimraf dist"
   },
   "devDependencies": {
     "@types/node": "^25.9.4",   
     "rimraf": "^6.1.2",
-    "typescript": "^5.9.3",
-    "dotenv": "^17.4.2",
-    "jsforce": "^3.10.19"
+    "typescript": "^5.9.3"
   }
 }

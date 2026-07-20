@@ -159,10 +159,6 @@ function escapeVal(cfg: SfObjectConfig | undefined, k: string, v: any): string {
 }
 
 
-//type SimpleFullQuery = {  }
-
-
-
 export interface ISfConnection {
     query: <R extends {}>(soql: string) => PromiseLike<{ records: R[] }>
 }
