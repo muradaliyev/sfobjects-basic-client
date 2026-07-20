@@ -1,0 +1,17 @@
+node_modules
+src/interfaces
+src/scripts
+test/*.js
+test/*.d.ts
+test/*.map
+.vscode/*.*
+npm-debug.log
+yarn-error.log
+.idea
+*~
+.#*
+dist/
+batch/
+.DS_Store
+.history/
+.env
