@@ -170,7 +170,6 @@ export class SfBasicParser<OI> {
                 return `'${v}'`;
             }
 
-
             if (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'bigint') {
                 return String(v);
             }
