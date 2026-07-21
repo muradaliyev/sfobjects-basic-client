@@ -1,7 +1,11 @@
+type WrapNull<T> = T extends null ? null : never;
+type KeyOf<O> = (keyof O) & string;
+
+
 type SfPrimitiveType = string | number | boolean | bigint;
 type ChildTable<O> = { totalSize: number, done: boolean, records: O[] }
-type OnlyStrings<S> = S extends string ? S : never;
-type GetObjectTypes<OI> = { [K in keyof OI]: OI[K] }[keyof OI];
+//type OnlyStrings<S> = S extends string ? S : never;
+type GetObjectTypes<OI> = { [K in KeyOf<OI>]: OI[K] }[KeyOf<OI>];
 
 // selection
 
@@ -10,27 +14,23 @@ type ShortQueryStatement<OO, O extends OO, K> = { from: K, select: PropSelect<OO
 type FullQueryStatement<OO, O extends OO, K> = ShortQueryStatement<OO, O, K> & { where?: WhereProps<OO, O>, limit?: number };
 
 type PropSelect<OO, O extends OO> = {
-    [K in keyof O]:
+    [K in KeyOf<O>]:
     NonNullable<O[K]> extends SfPrimitiveType ? K :
     NonNullable<O[K]> extends ChildTable<OO> ? FullQueryStatement<OO, NonNullable<O[K]>['records'][0], K> :
     NonNullable<O[K]> extends OO ? ShortQueryStatement<OO, NonNullable<O[K]>, K> :
     never
-}[keyof O]
+}[KeyOf<O>]
 
 
-//type RootSelect<OI> = { [N in keyof OI]: { from: N, select: PropSelect<GetObjectTypes<OI>, OI[N]>[] } }[keyof OI];
+type RootShortQueryStatement<OI, N extends KeyOf<OI>, K = N> = ShortQueryStatement<GetObjectTypes<OI>, OI[N], K>;
+type RootFullQueryStatement<OI, N extends KeyOf<OI>, K = N> = FullQueryStatement<GetObjectTypes<OI>, OI[N], K>;
 
-type RootShortQueryStatement<OI, N extends keyof OI, K = N> = ShortQueryStatement<GetObjectTypes<OI>, OI[N], K>;
-type RootFullQueryStatement<OI, N extends keyof OI, K = N> = FullQueryStatement<GetObjectTypes<OI>, OI[N], K>;
-
-export type SfRootQuery<OI> = { [N in OnlyStrings<keyof OI>]: RootFullQueryStatement<OI, N> }[OnlyStrings<keyof OI>];// { from: N, select: PropSelect<GetObjectTypes<OI>, OI[N]>[] } }[keyof OI];
+export type SfRootQuery<OI> = { [N in KeyOf<OI>]: RootFullQueryStatement<OI, N> }[KeyOf<OI>];
 
 
 // projection
 
-type SelectProjKeys<S, O> = { [K in keyof O]: K extends S ? K : S extends { from: K } ? K : never }[keyof O]
-
-type WrapNull<T> = T extends null ? null : never;
+type SelectProjKeys<S, O> = { [K in KeyOf<O>]: K extends S ? K : S extends { from: K } ? K : never }[KeyOf<O>]
 
 type SfProjection<OO, O extends OO, S> = {
     [K in SelectProjKeys<S, O>]: WrapNull<O[K]> | (
@@ -113,7 +113,7 @@ const OP_RULES: SfOpRule[] = [
 
 interface SfWhereOp<OP extends SfValueOpKeys, V> { op: OP; value: V; }
 
-type WherePropKeys<OO, O extends OO> = { [K in keyof O]: NonNullable<O[K]> extends SfPrimitiveType ? K : NonNullable<O[K]> extends OO ? K : never }[keyof O];
+type WherePropKeys<OO, O extends OO> = { [K in KeyOf<O>]: NonNullable<O[K]> extends SfPrimitiveType ? K : NonNullable<O[K]> extends OO ? K : never }[KeyOf<O>];
 
 type WhereProps<OO, O extends OO> = {
     [K in WherePropKeys<OO, O>]+?: (
@@ -129,7 +129,16 @@ type WhereProps<OO, O extends OO> = {
 
 // Basic Client
 
-export type SfObjectConfig = { dateTypes: string[], dateTimeTypes: string[], timeTypes: string[], lookupTypes: Record<string, string>, childTables: Record<string, string> };
+export type SfObjectConfig<OI, N extends KeyOf<OI>> = {
+    dateTypes: KeyOf<OI[N]>[],
+    dateTimeTypes: KeyOf<OI[N]>[],
+    timeTypes: KeyOf<OI[N]>[],
+    lookupTypes: Record<KeyOf<OI[N]>, KeyOf<OI>>,
+    childTables: Record<KeyOf<OI[N]>, KeyOf<OI>>,
+    recordTypes: Record<string, string>
+};
+
+export type SfObjectsConfigIndex<OI> = { [N in KeyOf<OI>]: SfObjectConfig<OI, N> };
 
 export interface ISfConnection {
     query: <R extends {}>(soql: string) => PromiseLike<{ records: R[] }>
@@ -151,13 +160,14 @@ export function isPlainObject(value: unknown): value is Record<string, any> {
     );
 }
 
+
 export class SfBasicParser<OI> {
 
-    constructor(private _cfg: Record<string, SfObjectConfig>) { }
+    constructor(public config: SfObjectsConfigIndex<OI>) { }
 
-    private _escapeVal(objName: string, k: string, v: any): string {
+    private _escapeVal<N extends KeyOf<OI>>(objName: N, k: KeyOf<OI[N]>, v: any): string {
 
-        const cfg = this._cfg[objName];
+        const cfg = this.config[objName];
 
         if (cfg) {
 
@@ -183,9 +193,9 @@ export class SfBasicParser<OI> {
 
     }
 
-    private _constructFullQuery(
-        objName: string,
-        from: string,
+    private _constructFullQuery<N extends KeyOf<OI>>(
+        objName: N,
+        from: N | KeyOf<OI[N]>,
         select: (string | {})[],
         where?: string | Record<string, any>,
         limit?: number
@@ -203,8 +213,8 @@ export class SfBasicParser<OI> {
             .join(' ');
     }
 
-    private _constructSelectStatement(
-        objName: string,
+    private _constructSelectStatement<N extends KeyOf<OI>>(
+        objName: N,
         select: (string | {})[],
         prefixes: string[] = []
     ): string {
@@ -218,8 +228,8 @@ export class SfBasicParser<OI> {
 
                 if (isPlainObject(rst)) {
 
-                    const { from } = rst;
-                    const oCfg = this._cfg[objName];
+                    const from = rst['from'] as KeyOf<OI[N]>;
+                    const oCfg = this.config[objName];
 
                     if (oCfg) {
 
@@ -234,14 +244,13 @@ export class SfBasicParser<OI> {
                     }
                 }
             })
-
             .filter(Boolean)
             .join(', ');
 
     }
 
-    private _constructWhereStatement(
-        objName: string,
+    private _constructWhereStatement<N extends KeyOf<OI>>(
+        objName: N,
         where: string | Record<string, any>,
         o?: { prefixes?: string[], isLogicalOr?: boolean, isLogicalNot?: boolean }
     ): string | undefined {
@@ -255,22 +264,24 @@ export class SfBasicParser<OI> {
         const whereStatements = Object.keys(where)
             .map((k): (string | undefined) => {
 
-                const v = where[k];
+                const propName = k as KeyOf<OI[N]>;
 
-                if (LOGICAL_OP_KEYS.includes(k as any)) {
+                const v = where[propName];
+
+                if (LOGICAL_OP_KEYS.includes(propName as any)) {
 
                     if (isPlainObject(v)) {
-                        return this._constructWhereStatement(objName, v, { prefixes, isLogicalOr: (k === OP_KEY_OR), isLogicalNot: (k === OP_KEY_NOT) });
+                        return this._constructWhereStatement(objName, v, { prefixes, isLogicalOr: (propName === OP_KEY_OR), isLogicalNot: (propName === OP_KEY_NOT) });
                     }
                 }
 
                 else {
 
-                    const oCfg = this._cfg[objName];
+                    const oCfg = this.config[objName];
 
                     if (oCfg) {
 
-                        const keyWithPrefix = [...(prefixes || []), k].join('.');
+                        const keyWithPrefix = [...(prefixes || []), propName].join('.');
 
                         if (isPlainObject(v)) {
 
@@ -290,7 +301,7 @@ export class SfBasicParser<OI> {
                                             isNot ? 'not (' : '',
                                             keyWithPrefix,
                                             soqlOp,
-                                            Array.isArray(value) ? `( ${value.map(v => this._escapeVal(objName, k, v)).join(',')} )` : this._escapeVal(objName, k, value),
+                                            Array.isArray(value) ? `( ${value.map(v => this._escapeVal(objName, propName, v)).join(',')} )` : this._escapeVal(objName, propName, value),
                                             isNot ? ')' : '',
                                         ]
                                             .filter(Boolean)
@@ -301,19 +312,19 @@ export class SfBasicParser<OI> {
 
                             else if (op === undefined && value === undefined && Object.keys(objMaps).length) {
 
-                                const childObjName = oCfg.lookupTypes[k];
+                                const childObjName = oCfg.lookupTypes[propName];
 
                                 if (childObjName) {
-                                    return this._constructWhereStatement(childObjName, objMaps, { prefixes: [...(prefixes || []), k] })
+                                    return this._constructWhereStatement(childObjName, objMaps, { prefixes: [...(prefixes || []), propName] })
                                 }
                             }
 
                         }
                         else if (Array.isArray(v)) {
-                            return `${keyWithPrefix} in (${v.map(vj => this._escapeVal(objName, k, vj)).join(', ')})`;
+                            return `${keyWithPrefix} in (${v.map(vj => this._escapeVal(objName, propName, vj)).join(', ')})`;
                         }
                         else {
-                            return `${keyWithPrefix} = ${this._escapeVal(objName, k, v)}`;
+                            return `${keyWithPrefix} = ${this._escapeVal(objName, propName, v)}`;
                         }
                     }
                 }
@@ -341,7 +352,7 @@ export class SfBasicParser<OI> {
 
 export class SfBasicClient<OI> extends SfBasicParser<OI> {
 
-    constructor(cfg: Record<string, SfObjectConfig>, private _conn: ISfConnection) {
+    constructor(cfg:  SfObjectsConfigIndex<OI>, private _conn: ISfConnection) {
         super(cfg);
     }
 
