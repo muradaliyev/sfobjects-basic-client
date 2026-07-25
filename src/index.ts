@@ -143,6 +143,25 @@ type SfOrderBy<OO, O extends OO> = {
 export type SfRootOrderBy<OI, N extends KeyOf<OI>> = SfOrderBy<GetObjectTypes<OI>, OI[N]>;
 
 
+// Create
+
+type CreatePrimitiveProps<O> = {
+    [K in KeyOf<O>]: K extends 'Id' ? never : (
+        NonNullable<O[K]> extends SfPrimitiveType ? K : never
+    )
+}[KeyOf<O>];
+
+export type SfRootCreate<O> = { [K in CreatePrimitiveProps<O>]+?: O[K] }
+
+// Upsert
+
+export type SfRootUpsert<O, K extends CreatePrimitiveProps<O>> = SfRootCreate<O> & { [P in K]: O[P] };
+
+// Update
+
+export type SfRootUpdate<O> = { Id: string } & SfRootCreate<O>;
+
+
 // Basic Client
 
 export type SfObjectConfig = {
@@ -165,8 +184,14 @@ export type SfParserQuery<
     R extends SfRootOrderBy<OI, N> = never
 > = { from: N, select: S[], where?: W, orderBy?: R, limit?: number };
 
+//upsert<N extends SObjectNames<S>, InputRecord extends SObjectInputRecord<S, N> = SObjectInputRecord<S, N>, FieldNames extends SObjectFieldNames<S, N> = SObjectFieldNames<S, N>>(type: N, records: InputRecord[], extIdField: FieldNames, options?: DmlOptions): Promise<UpsertResult[]>;
+//update<N extends SObjectNames<S>, UpdateRecord extends SObjectUpdateRecord<S, N> = SObjectUpdateRecord<S, N>>(type: N, records: UpdateRecord[], options?: DmlOptions): Promise<SaveResult[]>;
+
 export interface ISfConnection {
-    query: <R extends {}>(soql: string) => PromiseLike<{ records: R[] }>
+    query: <R extends {}>(soql: string) => PromiseLike<{ records: R[] }>,
+    upsert: <R, O = never>(n: string, r: any[], key: string, o: O) => PromiseLike<R[]>
+    update: <R, O = never>(n: string, r: any[], o: O) => PromiseLike<R[]>
+    create: <R, O = never>(n: string, r: any[], o: O) => PromiseLike<R[]>
 }
 
 export function isPlainObject(value: unknown): value is Record<string, any> {
@@ -368,34 +393,8 @@ export function getClient<OI>(_cfg: SfObjectsConfigIndex, _conn: ISfConnection) 
         }
     }
 
-    // function _soql<N extends KeyOf<OI>, S extends RootPropSelect<OI, N>, W extends RootWhereProps<OI, N>, Q extends SfParserQuery<OI, N, S, W>>(q: Q) {
-    //     const { from, select, where, limit } = q
-    //     return _constructFullQuery(q.from, from, select, where, limit);
-    // }
 
-
-
-    function _query<Q extends SfParserQuery<OI, N, S, W, R>, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>, W extends SfRootWhere<OI, N> = never, R extends SfRootOrderBy<OI, N> = never>(q: Q) {
-
-        function soql() {
-            const { from, select, where, limit } = q
-            return _constructFullQuery(q.from, from, select, where, undefined, limit);
-        }
-
-        async function exec() {
-            return await _conn.query<SfRootSelectProjection<OI, N, S>>(soql()); // to get rid of promiselike
-        }
-
-        function limit(limit: number) {
-            const _qs = <Q extends SfParserQuery<OI, N, S, W, R>>(q: Q) => _query<Q, N, S, W, R>(q);
-            return _qs({ ...q, limit })
-        }
-
-
-        return ({ exec, soql, limit });
-    }
-
-    function _query2<N extends KeyOf<OI>, S extends SfRootSelect<OI, N>, W extends SfRootWhere<OI, N> = never, R extends SfRootOrderBy<OI, N> = never>(
+    function _query<N extends KeyOf<OI>, S extends SfRootSelect<OI, N>, W extends SfRootWhere<OI, N> = never, R extends SfRootOrderBy<OI, N> = never>(
         from: N,
         select: S[],
         where?: W,
@@ -407,47 +406,41 @@ export function getClient<OI>(_cfg: SfObjectsConfigIndex, _conn: ISfConnection) 
 
         return ({
             soql,
-            exec: async () => await _conn.query<SfRootSelectProjection<OI, N, S>>(soql()), // to get rid of promiselike,            
-            limit: (limit: number) => _query2(from, select, where, orderBy, limit)
+            get: async () => await _conn.query<SfRootSelectProjection<OI, N, S>>(soql()), // to get rid of promiselike,            
+            limit: (limit: number) => _query(from, select, where, orderBy, limit)
         });
     }
 
 
-    return <N extends KeyOf<OI>>(from: N) => ({
+    return ({
 
-        select: <S extends SfRootSelect<OI, N>>(select: S[]) => {
+        sfQuery: <Q extends SfRootQuery<OI>>(q: Q) => {
+            const { from, select, where, orderBy, limit } = q;
+            return _query(from, select, where, orderBy, limit);
+        },
 
-            return ({
-                ..._query2(from, select),
+        sfObject: <N extends KeyOf<OI>>(from: N) => ({
 
-                orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => _query2(from, select, undefined, orderBy),
+            update: async <O = never>(records: SfRootUpdate<OI[N]>[], options: O) => await _conn.update(from, records, options),
 
-                where: <W extends SfRootWhere<OI, N>>(where: W) => {                    
-                    return ({
-                        ..._query2(from, select, where),
-                        orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => _query2(from, select, where, orderBy)
-                    })
-                }
-            });
-        }
+            create: async <O = never>(records: SfRootCreate<OI[N]>[], options: O) => await _conn.create(from, records, options),
+
+            upsert: async <K extends CreatePrimitiveProps<OI[N]>, O = never>(records: SfRootUpsert<OI[N], K>[], key: K, options: O) => await _conn.upsert(from, records, key, options),
+
+            select: <S extends SfRootSelect<OI, N>>(select: S[]) => ({
+
+                ..._query(from, select),
+
+                orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => _query(from, select, undefined, orderBy),
+
+                where: <W extends SfRootWhere<OI, N>>(where: W) => ({
+
+                    ..._query(from, select, where),
+
+                    orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => _query(from, select, where, orderBy)
+                })
+
+            })
+        })
     })
 }
-
-// export class SfBasicClient<OI> extends SfBasicParser<OI> {
-
-//     constructor(cfg: SfObjectsConfigIndex, private _conn: ISfConnection) {
-//         super(cfg);
-//     }
-
-//     exec<Q extends SfRootQuery<OI>>(query: Q) {
-//         return this._conn.query<SfRootQueryProjection<OI, Q>>(this.soql(query));
-//     }
-
-//     query<Q extends SfRootQuery<OI>>(query: Q) {
-
-//         return ({
-//             exec: () => this.exec(query),
-//             soql: () => this.soql(query)
-//         })
-//     }
-// }
