@@ -5,6 +5,7 @@ type KeyOf<O> = (keyof O) & string;
 type SfPrimitiveType = string | number | boolean | bigint;
 type ChildTable<O> = { totalSize: number, done: boolean, records: O[] }
 type GetObjectTypes<OI> = { [K in KeyOf<OI>]: OI[K] }[KeyOf<OI>];
+type IsMutable<X, Y, A> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? A : never;
 
 // selection
 
@@ -133,11 +134,23 @@ type SfOrderBy<OO, O extends OO> = {
 
 // Create
 
-type CreatePrimitiveProps<O> = {
-    [K in KeyOf<O>]: K extends 'Id' ? never : (
-        NonNullable<O[K]> extends SfPrimitiveType ? K : never
+type OptionalCreateProps<O> = {
+    [K in keyof O]: Extract<O[K], null> extends never ? never : (
+        NonNullable<O[K]> extends SfPrimitiveType ? (
+            IsMutable<{ [P in K]: O[P] }, { -readonly [P in K]: O[P] }, K>
+        ) : never
     )
 }[KeyOf<O>];
+
+type MandatoryCreateProps<O> = {
+    [K in keyof O]: Extract<O[K], null> extends never ? (
+        O[K] extends SfPrimitiveType ? (
+            IsMutable<{ [P in K]: O[P] }, { -readonly [P in K]: O[P] }, K>
+        ) : never
+    ) : never
+}[KeyOf<O>];
+
+
 
 // Select
 
@@ -158,11 +171,11 @@ export type SfRootSelectProjection<OI, N extends KeyOf<OI>, S extends SfRootSele
 
 // Create
 
-export type SfCreate<O> = { [K in CreatePrimitiveProps<O>]+?: O[K] }
+export type SfCreate<O> = { [K in MandatoryCreateProps<O>]: O[K] } & { [K in OptionalCreateProps<O>]+?: O[K] }
 
 // Upsert
 
-export type SfUpsert<O, K extends CreatePrimitiveProps<O>> = SfCreate<O> & { [P in K]: O[P] };
+export type SfUpsert<O, K extends MandatoryCreateProps<O>> = SfCreate<O> & { [P in K]: O[P] };
 
 // Update
 
@@ -210,7 +223,7 @@ export interface SfObjActions<OI, N extends KeyOf<OI>> {
     query: <S extends SfRootSelect<OI, N>>(q: { select: S[], where?: SfRootWhere<OI, N>, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfSelectActions<OI, N, S>;
     update: <R, O = never>(records: SfUpdate<OI[N]>[], options?: O) => Promise<R[]>;
     create: <R, O = never>(records: SfCreate<OI[N]>[], options?: O) => Promise<R[]>;
-    upsert: <R, K extends CreatePrimitiveProps<OI[N]>, O = never>(records: SfUpsert<OI[N], K>[], key: K, options?: O) => Promise<R[]>;
+    upsert: <R, K extends MandatoryCreateProps<OI[N]>, O = never>(records: SfUpsert<OI[N], K>[], key: K, options?: O) => Promise<R[]>;
     select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S>);
 }
 
@@ -236,9 +249,13 @@ export function isPlainObject(value: unknown): value is Record<string, any> {
 
 export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
 
-    function _escapeVal(objName: KeyOf<OI>, k: string, v: any): string {
+    function _getCfg(objName: string) {
+        return _cfg[objName as KeyOf<OI>]
+    }
 
-        const cfg = _cfg[objName];
+    function _escapeVal(objName: string, k: string, v: any): string {
+
+        const cfg = _getCfg(objName);
 
         if (cfg) {
 
@@ -264,12 +281,12 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
 
     }
 
-    function _constructFullQuery(
-        objName: KeyOf<OI>,
+    function _constructFullQuery1(
+        objName: string,
         from: string,
         select: (string | {})[],
         where?: string | Record<string, any>,
-        orderBy?: {},
+        orderBy?: Record<string, any>,
         limit?: number
     ): string {
 
@@ -279,14 +296,38 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
             'from',
             from,
             where && `where ${_constructWhereStatement(objName, where)}`,
+            orderBy && `order by ${_constructOrderByStatement(objName, orderBy)}`,
             limit ? `limit ${limit}` : ''
         ]
             .filter(Boolean)
             .join(' ');
     }
 
+
+    function _constructFullQuery(
+        objName: string,
+        from: string,
+        select: (string | {})[],
+        where?: string | Record<string, any>,
+        orderBy?: Record<string, any>,
+        limit?: number
+    ) {
+
+        const o: Record<string, string | undefined> = {
+            'select': _constructSelectStatement(objName, select),
+            'from': from,
+            'where': where && _constructWhereStatement(objName, where),
+            'order by': orderBy && _constructOrderByStatement(objName, orderBy),
+            'limit': limit?.toString()
+        }
+
+
+
+        return Object.keys(o).filter(k => !!o[k]).reduce((p, k) => ([p, k, o[k]].join(' ')), '');
+    }
+
     function _constructSelectStatement(
-        objName: KeyOf<OI>,
+        objName: string,
         select: (string | {})[],
         prefixes: string[] = []
     ): string {
@@ -301,17 +342,17 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
                 if (isPlainObject(rst)) {
 
                     const from = rst['from'];
-                    const oCfg = _cfg[objName];
+                    const oCfg = _getCfg(objName);
 
                     if (oCfg) {
 
                         if (oCfg.childTables[from]) {
-                            const { select, where, limit } = rst
-                            return `( ${_constructFullQuery(oCfg.childTables[from] as KeyOf<OI>, select, where, limit)} )`;
+                            const { select, where, limit, orderBy } = rst
+                            return `( ${_constructFullQuery(oCfg.childTables[from], from, select, where, orderBy, limit)} )`;
                         }
 
                         if (oCfg.lookupTypes[from]) {
-                            return _constructSelectStatement(oCfg.lookupTypes[from] as KeyOf<OI>, rst['select'], [...prefixes, from])
+                            return _constructSelectStatement(oCfg.lookupTypes[from], rst['select'], [...prefixes, from])
                         }
                     }
                 }
@@ -321,8 +362,40 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
 
     }
 
+    function _constructOrderByStatement(
+        objName: string,
+        orderBy: Record<string, any>,
+        prefixes?: string[]
+    ) {
+
+        return Object.keys(orderBy)
+            .map((propName): (string | undefined) => {
+
+                const v = orderBy[propName];
+                const keyWithPrefix = [...(prefixes || []), propName].join('.');
+                const oCfg = _getCfg(objName);
+
+                if (oCfg) {
+
+                    if (isPlainObject(v)) {
+                        const childObjName = oCfg.lookupTypes[propName];
+
+                        if (childObjName) {
+                            return _constructOrderByStatement(childObjName, v, [...(prefixes || []), propName])
+                        }
+                    }
+                    else {
+                        return `${keyWithPrefix} ${v}`;
+                    }
+                }
+
+            })
+            .filter(Boolean)
+            .join(', ');
+    }
+
     function _constructWhereStatement(
-        objName: KeyOf<OI>,
+        objName: string,
         where: string | Record<string, any>,
         o?: { prefixes?: string[], isLogicalOr?: boolean, isLogicalNot?: boolean }
     ): string | undefined {
@@ -347,7 +420,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
 
                 else {
 
-                    const oCfg = _cfg[objName];
+                    const oCfg = _getCfg(objName);
 
                     if (oCfg) {
 
@@ -385,7 +458,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
                                 const childObjName = oCfg.lookupTypes[propName];
 
                                 if (childObjName) {
-                                    return _constructWhereStatement(childObjName as KeyOf<OI>, objMaps, { prefixes: [...(prefixes || []), propName] })
+                                    return _constructWhereStatement(childObjName, objMaps, { prefixes: [...(prefixes || []), propName] })
                                 }
                             }
 
@@ -444,7 +517,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
 
             create: async <R, O = never>(records: SfCreate<OI[N]>[], options?: O) => await _conn.create<R, O>(from, records, options),
 
-            upsert: async <R, K extends CreatePrimitiveProps<OI[N]>, O = never>(records: SfUpsert<OI[N], K>[], key: K, options?: O) => await _conn.upsert<R, O>(from, records, key, options),
+            upsert: async <R, K extends MandatoryCreateProps<OI[N]>, O = never>(records: SfUpsert<OI[N], K>[], key: K, options?: O) => await _conn.upsert<R, O>(from, records, key, options),
 
             select: <S extends SfRootSelect<OI, N>>(select: S[]) => ({
 
