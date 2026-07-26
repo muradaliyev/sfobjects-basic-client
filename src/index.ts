@@ -200,9 +200,9 @@ export type SfObjCfgIndex<OI> = Record<KeyOf<OI>, SfObjCfg>;
 
 export interface ISfConnection {
     query: <R extends {}>(soql: string) => PromiseLike<{ records: R[] }>,
-    upsert: <R, O = never>(n: string, r: any[], key: string, o?: O) => PromiseLike<R[]>
-    update: <R, O = never>(n: string, r: any[], o?: O) => PromiseLike<R[]>
-    create: <R, O = never>(n: string, r: any[], o?: O) => PromiseLike<R[]>
+    upsert: (n: string, r: any[], key: string, o?: any) => PromiseLike<any[]>
+    update: (n: string, r: any[], o?: any) => PromiseLike<any[]>
+    create: (n: string, r: any[], o?: any) => PromiseLike<any[]>
 }
 
 export interface SfSelectActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
@@ -219,15 +219,15 @@ export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<
     where: (where: SfRootWhere<OI, N>) => (SfSelectActions<OI, N, S> & SfOrderByAction<OI, N, S>);
 }
 
-export interface SfObjActions<OI, N extends KeyOf<OI>> {
+export interface SfObjActions<OI, N extends KeyOf<OI>, C extends ISfConnection> {
     query: <S extends SfRootSelect<OI, N>>(q: { select: S[], where?: SfRootWhere<OI, N>, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfSelectActions<OI, N, S>;
-    update: <R, O = never>(records: SfUpdate<OI[N]>[], options?: O) => Promise<R[]>;
-    create: <R, O = never>(records: SfCreate<OI[N]>[], options?: O) => Promise<R[]>;
-    upsert: <R, K extends MandatoryCreateProps<OI[N]>, O = never>(records: SfUpsert<OI[N], K>[], key: K, options?: O) => Promise<R[]>;
+    update: (records: SfUpdate<OI[N]>[], options?: Parameters<C['update']>[2]) => ReturnType<C['update']>;
+    create: (records: SfCreate<OI[N]>[], options?: Parameters<C['create']>[2]) => ReturnType<C['create']>;
+    upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: Parameters<C['create']>[3]) => ReturnType<C['upsert']>;
     select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S>);
 }
 
-export type ISfObjects<OI> = { [N in KeyOf<OI>]: SfObjActions<OI, N> };
+export type ISfObjects<OI, C extends ISfConnection> = { [N in KeyOf<OI>]: SfObjActions<OI, N, C> };
 
 // functions
 
@@ -247,7 +247,7 @@ export function isPlainObject(value: unknown): value is Record<string, any> {
     );
 }
 
-export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
+export function getSfObject<OI, C extends ISfConnection>(_cfg: SfObjCfgIndex<OI>, _conn: C) {
 
     function _getCfg(objName: string) {
         return _cfg[objName as KeyOf<OI>]
@@ -280,29 +280,6 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
         throw `Unupported value type for where statement`;
 
     }
-
-    function _constructFullQuery1(
-        objName: string,
-        from: string,
-        select: (string | {})[],
-        where?: string | Record<string, any>,
-        orderBy?: Record<string, any>,
-        limit?: number
-    ): string {
-
-        return [
-            'select',
-            _constructSelectStatement(objName, select),
-            'from',
-            from,
-            where && `where ${_constructWhereStatement(objName, where)}`,
-            orderBy && `order by ${_constructOrderByStatement(objName, orderBy)}`,
-            limit ? `limit ${limit}` : ''
-        ]
-            .filter(Boolean)
-            .join(' ');
-    }
-
 
     function _constructFullQuery(
         objName: string,
@@ -487,7 +464,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
         }
     }
 
-    return <N extends KeyOf<OI>>(from: N): SfObjActions<OI, N> => {
+    return <N extends KeyOf<OI>>(from: N): SfObjActions<OI, N, C> => {
 
         function _query<S extends SfRootSelect<OI, N>>(
             from: N,
@@ -513,11 +490,11 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
                 return _query(from, select, where, orderBy, limit);
             },
 
-            update: async <R, O = never>(records: SfUpdate<OI[N]>[], options?: O) => await _conn.update<R, O>(from, records, options),
+            update: (records: SfUpdate<OI[N]>[], options?: Parameters<C['update']>[2]) => _conn.update(from, records, options) as ReturnType<C['update']>,
 
-            create: async <R, O = never>(records: SfCreate<OI[N]>[], options?: O) => await _conn.create<R, O>(from, records, options),
+            create: (records: SfCreate<OI[N]>[], options?: Parameters<C['create']>[2]) => _conn.create(from, records, options) as ReturnType<C['create']>,
 
-            upsert: async <R, K extends MandatoryCreateProps<OI[N]>, O = never>(records: SfUpsert<OI[N], K>[], key: K, options?: O) => await _conn.upsert<R, O>(from, records, key, options),
+            upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: Parameters<C['create']>[3]) => _conn.upsert(from, records, key, options) as ReturnType<C['upsert']>,
 
             select: <S extends SfRootSelect<OI, N>>(select: S[]) => ({
 
@@ -539,7 +516,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) {
 }
 
 
-export const getSfObjects = <OI>(_cfg: SfObjCfgIndex<OI>, _conn: ISfConnection) => {
+export const getSfObjects = <OI>(_cfg: SfObjCfgIndex<OI>) => <C extends ISfConnection>(_conn: C) => {
     const _func = getSfObject(_cfg, _conn);
-    return (Object.keys(_cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n) }), {} as ISfObjects<OI>);
+    return (Object.keys(_cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n) }), {} as ISfObjects<OI, C>);
 }
