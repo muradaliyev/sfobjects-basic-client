@@ -194,12 +194,12 @@ export type SfObjCfg = {
     recordTypes: Record<string, string>
 };
 
-export type SfObjCfgIndex<OI> = Record<KeyOf<OI>, SfObjCfg>;
+export type SfObjCfgIndex = Record<string, SfObjCfg>;
 
 
 
 export interface ISfConnection {
-    query: <R extends {}>(soql: string) => PromiseLike<{ records: R[] }>,
+    query: <R extends {}>(soql: string, o?: any) => PromiseLike<{ records: R[] }>,
     upsert: (n: string, r: any[], key: string, o?: any) => PromiseLike<any[]>
     update: (n: string, r: any[], o?: any) => PromiseLike<any[]>
     create: (n: string, r: any[], o?: any) => PromiseLike<any[]>
@@ -218,6 +218,16 @@ export interface SfOrderByAction<OI, N extends KeyOf<OI>, S extends SfRootSelect
 export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
     where: (where: SfRootWhere<OI, N>) => (SfSelectActions<OI, N, S> & SfOrderByAction<OI, N, S>);
 }
+
+
+
+
+
+//type RR<R extends {}> = ReturnType<ISfConnection['query']<R>>;
+
+
+
+
 
 export interface SfObjActions<OI, N extends KeyOf<OI>, C extends ISfConnection> {
     query: <S extends SfRootSelect<OI, N>>(q: { select: S[], where?: SfRootWhere<OI, N>, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfSelectActions<OI, N, S>;
@@ -247,7 +257,7 @@ export function isPlainObject(value: unknown): value is Record<string, any> {
     );
 }
 
-export function getSfObject<OI, C extends ISfConnection>(_cfg: SfObjCfgIndex<OI>, _conn: C) {
+export function constructSoql<OI>(_cfg: SfObjCfgIndex) {
 
     function _getCfg(objName: string) {
         return _cfg[objName as KeyOf<OI>]
@@ -464,30 +474,36 @@ export function getSfObject<OI, C extends ISfConnection>(_cfg: SfObjCfgIndex<OI>
         }
     }
 
-    return <N extends KeyOf<OI>>(from: N): SfObjActions<OI, N, C> => {
+    return _constructFullQuery;
+}
 
-        function _query<S extends SfRootSelect<OI, N>>(
-            from: N,
-            select: S[],
-            where?: SfRootWhere<OI, N>,
-            orderBy?: SfRootOrderBy<OI, N>,
-            limit?: number
-        ): SfSelectActions<OI, N, S> {
+export function getSfObject<OI>(_cfg: SfObjCfgIndex) {
 
-            const soql = () => _constructFullQuery(from, from, select, where, orderBy, limit)
+    function _query<S extends SfRootSelect<OI, N>, N extends KeyOf<OI>, C extends ISfConnection>(
+        conn: C,
+        from: N,
+        select: S[],
+        where?: SfRootWhere<OI, N>,
+        orderBy?: SfRootOrderBy<OI, N>,
+        limit?: number
+    ): SfSelectActions<OI, N, S> {
 
-            return ({
-                soql,
-                get: async () => await _conn.query<SfRootSelectProjection<OI, N, S>>(soql()), // to get rid of promiselike,            
-                limit: (limit: number) => _query(from, select, where, orderBy, limit)
-            });
-        }
+        const soql = () => constructSoql(_cfg)(from, from, select, where, orderBy, limit)
+
+        return ({
+            soql,
+            get: async (options?: Parameters<C['query']>[1]) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options), // to get rid of promiselike,            
+            limit: (limit: number) => _query(conn, from, select, where, orderBy, limit)
+        });
+    }
+
+    return <N extends KeyOf<OI>, C extends ISfConnection>(from: N, _conn: C): SfObjActions<OI, N, C> => {
 
         return ({
 
             query: <S extends SfRootSelect<OI, N>>(q: { select: S[], where?: SfRootWhere<OI, N>, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => {
                 const { select, where, orderBy, limit } = q;
-                return _query(from, select, where, orderBy, limit);
+                return _query(_conn, from, select, where, orderBy, limit);
             },
 
             update: (records: SfUpdate<OI[N]>[], options?: Parameters<C['update']>[2]) => _conn.update(from, records, options) as ReturnType<C['update']>,
@@ -498,15 +514,15 @@ export function getSfObject<OI, C extends ISfConnection>(_cfg: SfObjCfgIndex<OI>
 
             select: <S extends SfRootSelect<OI, N>>(select: S[]) => ({
 
-                ..._query(from, select),
+                ..._query(_conn, from, select),
 
-                orderBy: (orderBy: SfRootOrderBy<OI, N>) => _query(from, select, undefined, orderBy),
+                orderBy: (orderBy: SfRootOrderBy<OI, N>) => _query(_conn, from, select, undefined, orderBy),
 
                 where: (where: SfRootWhere<OI, N>) => ({
 
-                    ..._query(from, select, where),
+                    ..._query(_conn, from, select, where),
 
-                    orderBy: (orderBy: SfRootOrderBy<OI, N>) => _query(from, select, where, orderBy)
+                    orderBy: (orderBy: SfRootOrderBy<OI, N>) => _query(_conn, from, select, where, orderBy)
                 })
 
             })
@@ -516,7 +532,7 @@ export function getSfObject<OI, C extends ISfConnection>(_cfg: SfObjCfgIndex<OI>
 }
 
 
-export const getSfObjects = <OI>(_cfg: SfObjCfgIndex<OI>) => <C extends ISfConnection>(_conn: C) => {
-    const _func = getSfObject(_cfg, _conn);
-    return (Object.keys(_cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n) }), {} as ISfObjects<OI, C>);
+export const getSfObjects = <OI>(_cfg: SfObjCfgIndex) => <C extends ISfConnection>(_conn: C) => {
+    const _func = getSfObject<OI>(_cfg);
+    return (Object.keys(_cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n, _conn) }), {} as ISfObjects<OI, C>);
 }
