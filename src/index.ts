@@ -21,18 +21,16 @@ type SfSelect<OO, O extends OO> = {
     never
 }[KeyOf<O>]
 
-
-
 // projection
 
 type SelectProjKeys<S, O> = { [K in KeyOf<O>]: K extends S ? K : S extends { from: K } ? K : never }[KeyOf<O>]
 
 type SfProjection<OO, O extends OO, S> = {
-    [K in SelectProjKeys<S, O>]: WrapNull<O[K]> | (
+    readonly [K in SelectProjKeys<S, O>]: WrapNull<O[K]> | (
         S extends K ? O[K] : (
             S extends { from: K, select: any[] } ? (
                 NonNullable<O[K]> extends OO ? SfProjection<OO, NonNullable<O[K]>, S['select'][0]> : (
-                    NonNullable<O[K]> extends ChildTable<OO> ? ChildTable<SfProjection<OO, NonNullable<O[K]>['records'][0], S['select'][0]>> :
+                    NonNullable<O[K]> extends ChildTable<OO> ? Readonly<ChildTable<SfProjection<OO, NonNullable<O[K]>['records'][0], S['select'][0]>>> :
                     never
                 )
             ) : never
@@ -165,8 +163,6 @@ export type SfRootOrderBy<OI, N extends KeyOf<OI>> = SfOrderBy<GetObjectTypes<OI
 
 // Projection
 
-//export type SfRootQueryProjection<OI, Q extends SfRootQuery<OI>> = SfProjection<GetObjectTypes<OI>, OI[Q['from']], Q['select'][0]>;
-
 export type SfRootSelectProjection<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> = SfProjection<GetObjectTypes<OI>, OI[N], S>;
 
 // Create
@@ -196,13 +192,56 @@ export type SfObjCfg = {
 
 export type SfObjCfgIndex = Record<string, SfObjCfg>;
 
+export type SaveError = {
+    errorCode: string;
+    message: string;
+    fields?: string[];
+};
 
+export type QueryOptions = {
+    headers?: {
+        [name: string]: string;
+    };
+    maxFetch?: number;
+    autoFetch?: boolean;
+}
+
+export type DmlOptions = {
+    allOrNone?: boolean;
+    allowRecursive?: boolean;
+    headers?: {
+        [name: string]: string;
+    };
+    multipartFileFields?: {
+        [fieldName: string]: {
+            filename?: string;
+            contentType: string;
+        };
+    };
+};
+
+export type QueryResult<R> = { records: R[] };
+
+export type SaveResult = {
+    success: true;
+    id: string;
+    created?: boolean;
+} | {
+    success: false;
+    errors: SaveError[];
+};
+
+export type UpdatedResult = {
+    ids: string[];
+    latestDateCovered: string;
+};
 
 export interface ISfConnection {
-    query: <R extends {}>(soql: string, o?: any) => PromiseLike<{ records: R[] }>,
-    upsert: (n: string, r: any[], key: string, o?: any) => PromiseLike<any[]>
-    update: (n: string, r: any[], o?: any) => PromiseLike<any[]>
-    create: (n: string, r: any[], o?: any) => PromiseLike<any[]>
+    query: <R extends {}>(soql: string, o?: QueryOptions) => PromiseLike<QueryResult<R>>,
+    upsert: (n: string, r: any[], key: string, o?: DmlOptions) => PromiseLike<SaveResult[]>
+    update: (n: string, r: any[], o?: DmlOptions) => PromiseLike<SaveResult[]>
+    create: (n: string, r: any[], o?: DmlOptions) => PromiseLike<SaveResult[]>
+    delete: (n: string, ids: string[], o?: DmlOptions) => PromiseLike<SaveResult[]>
 }
 
 export interface SfSelectActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
@@ -219,18 +258,9 @@ export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<
     where: (where: SfRootWhere<OI, N>) => (SfSelectActions<OI, N, S> & SfOrderByAction<OI, N, S>);
 }
 
-
-
-
-
-//type RR<R extends {}> = ReturnType<ISfConnection['query']<R>>;
-
-
-
-
-
 export interface SfObjActions<OI, N extends KeyOf<OI>, C extends ISfConnection> {
     query: <S extends SfRootSelect<OI, N>>(q: { select: S[], where?: SfRootWhere<OI, N>, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfSelectActions<OI, N, S>;
+    delete: (ids: string[], options?: Parameters<C['delete']>[2]) => ReturnType<C['delete']>;
     update: (records: SfUpdate<OI[N]>[], options?: Parameters<C['update']>[2]) => ReturnType<C['update']>;
     create: (records: SfCreate<OI[N]>[], options?: Parameters<C['create']>[2]) => ReturnType<C['create']>;
     upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: Parameters<C['create']>[3]) => ReturnType<C['upsert']>;
@@ -505,6 +535,8 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex) {
                 const { select, where, orderBy, limit } = q;
                 return _query(_conn, from, select, where, orderBy, limit);
             },
+
+            delete: (ids: string[], options?: Parameters<C['delete']>[2]) => _conn.delete(from, ids, options) as ReturnType<C['delete']>,
 
             update: (records: SfUpdate<OI[N]>[], options?: Parameters<C['update']>[2]) => _conn.update(from, records, options) as ReturnType<C['update']>,
 
