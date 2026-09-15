@@ -188,7 +188,7 @@ export type SfObjCfg = {
     recordTypes: Record<string, string>
 };
 
-export type SfObjCfgIndex = Record<string, SfObjCfg>;
+export type SfObjCfgIndex<OI> = Record<keyof OI, SfObjCfg>;
 
 export type SaveError = {
     errorCode: string;
@@ -285,7 +285,7 @@ export function isPlainObject(value: unknown): value is Record<string, any> {
     );
 }
 
-export function constructSoql<OI>(_cfg: SfObjCfgIndex) {
+export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
 
     function _getCfg(objName: string) {
         return _cfg[objName as KeyOf<OI>]
@@ -505,7 +505,7 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex) {
     return _constructFullQuery;
 }
 
-export function getSfObject<OI>(_cfg: SfObjCfgIndex) {
+export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
 
     function _query<S extends SfRootSelect<OI, N>, N extends KeyOf<OI>>(
         conn: ISfConnection,
@@ -562,7 +562,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex) {
 }
 
 
-export const getSfObjects = <OI>(cfg: SfObjCfgIndex) => (conn: ISfConnection) => {
+export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection) => {
     const _func = getSfObject<OI>(cfg);
     return (Object.keys(cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n, conn) }), {} as ISfObjects<OI>);
 }
