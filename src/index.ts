@@ -154,8 +154,6 @@ type MandatoryCreateProps<O> = {
 
 export type SfRootSelect<OI, N extends KeyOf<OI>> = SfSelect<GetObjectTypes<OI>, OI[N]>;
 
-//export type SfRootQuery<OI> = { [N in KeyOf<OI>]: FullQueryStatement<GetObjectTypes<OI>, OI[N], N> }[KeyOf<OI>];
-
 export type SfRootWhere<OI, N extends KeyOf<OI>> = SfWhere<GetObjectTypes<OI>, OI[N]>;
 
 export type SfRootOrderBy<OI, N extends KeyOf<OI>> = SfOrderBy<GetObjectTypes<OI>, OI[N]>;
@@ -258,16 +256,16 @@ export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<
     where: (where: SfRootWhere<OI, N>) => (SfSelectActions<OI, N, S> & SfOrderByAction<OI, N, S>);
 }
 
-export interface SfObjActions<OI, N extends KeyOf<OI>, C extends ISfConnection> {
+export interface SfObjActions<OI, N extends KeyOf<OI>> {
     query: <S extends SfRootSelect<OI, N>>(q: { select: S[], where?: SfRootWhere<OI, N>, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfSelectActions<OI, N, S>;
-    delete: (ids: string[], options?: Parameters<C['delete']>[2]) => ReturnType<C['delete']>;
-    update: (records: SfUpdate<OI[N]>[], options?: Parameters<C['update']>[2]) => ReturnType<C['update']>;
-    create: (records: SfCreate<OI[N]>[], options?: Parameters<C['create']>[2]) => ReturnType<C['create']>;
-    upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: Parameters<C['create']>[3]) => ReturnType<C['upsert']>;
+    delete: (ids: string[], options?: DmlOptions) => PromiseLike<SaveResult[]>;
+    update: (records: SfUpdate<OI[N]>[], options?: DmlOptions) => PromiseLike<SaveResult[]>;
+    create: (records: SfCreate<OI[N]>[], options?: DmlOptions) => PromiseLike<SaveResult[]>;
+    upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: DmlOptions) => PromiseLike<SaveResult[]>;
     select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S>);
 }
 
-export type ISfObjects<OI, C extends ISfConnection> = { [N in KeyOf<OI>]: SfObjActions<OI, N, C> };
+export type ISfObjects<OI> = { [N in KeyOf<OI>]: SfObjActions<OI, N> };
 
 // functions
 
@@ -509,8 +507,8 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex) {
 
 export function getSfObject<OI>(_cfg: SfObjCfgIndex) {
 
-    function _query<S extends SfRootSelect<OI, N>, N extends KeyOf<OI>, C extends ISfConnection>(
-        conn: C,
+    function _query<S extends SfRootSelect<OI, N>, N extends KeyOf<OI>>(
+        conn: ISfConnection,
         from: N,
         select: S[],
         where?: SfRootWhere<OI, N>,
@@ -518,16 +516,16 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex) {
         limit?: number
     ): SfSelectActions<OI, N, S> {
 
-        const soql = () => constructSoql(_cfg)(from, from, select, where, orderBy, limit)
+        const soql = () => constructSoql(_cfg)(from, from, select, where, orderBy, limit);
 
         return ({
             soql,
-            get: async (options?: Parameters<C['query']>[1]) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options), // to get rid of promiselike,            
+            get: async (options?: QueryOptions) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options), // to get rid of promiselike,            
             limit: (limit: number) => _query(conn, from, select, where, orderBy, limit)
         });
     }
 
-    return <N extends KeyOf<OI>, C extends ISfConnection>(from: N, _conn: C): SfObjActions<OI, N, C> => {
+    return <N extends KeyOf<OI>>(from: N, _conn: ISfConnection): SfObjActions<OI, N> => {
 
         return ({
 
@@ -536,13 +534,13 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex) {
                 return _query(_conn, from, select, where, orderBy, limit);
             },
 
-            delete: (ids: string[], options?: Parameters<C['delete']>[2]) => _conn.delete(from, ids, options) as ReturnType<C['delete']>,
+            delete: (ids: string[], options?: DmlOptions) => _conn.delete(from, ids, options),
 
-            update: (records: SfUpdate<OI[N]>[], options?: Parameters<C['update']>[2]) => _conn.update(from, records, options) as ReturnType<C['update']>,
+            update: (records: SfUpdate<OI[N]>[], options?: DmlOptions) => _conn.update(from, records, options),
 
-            create: (records: SfCreate<OI[N]>[], options?: Parameters<C['create']>[2]) => _conn.create(from, records, options) as ReturnType<C['create']>,
+            create: (records: SfCreate<OI[N]>[], options?: DmlOptions) => _conn.create(from, records, options),
 
-            upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: Parameters<C['create']>[3]) => _conn.upsert(from, records, key, options) as ReturnType<C['upsert']>,
+            upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: DmlOptions) => _conn.upsert(from, records, key, options),
 
             select: <S extends SfRootSelect<OI, N>>(select: S[]) => ({
 
@@ -564,7 +562,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex) {
 }
 
 
-export const getSfObjects = <OI>(_cfg: SfObjCfgIndex) => <C extends ISfConnection>(_conn: C) => {
-    const _func = getSfObject<OI>(_cfg);
-    return (Object.keys(_cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n, _conn) }), {} as ISfObjects<OI, C>);
+export const getSfObjects = <OI>(cfg: SfObjCfgIndex) => (conn: ISfConnection) => {
+    const _func = getSfObject<OI>(cfg);
+    return (Object.keys(cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n, conn) }), {} as ISfObjects<OI>);
 }
