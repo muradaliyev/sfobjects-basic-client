@@ -265,8 +265,6 @@ export interface SfObjActions<OI, N extends KeyOf<OI>> {
     select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S>);
 }
 
-export type ISfObjects<OI> = { [N in KeyOf<OI>]: SfObjActions<OI, N> };
-
 // functions
 
 export function isPlainObject(value: unknown): value is Record<string, any> {
@@ -564,5 +562,5 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
 
 export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection) => {
     const _func = getSfObject<OI>(cfg);
-    return (Object.keys(cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n, conn) }), {} as ISfObjects<OI>);
+    return (Object.keys(cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n, conn) }), {} as { [N in KeyOf<OI>]: SfObjActions<OI, N> });
 }
