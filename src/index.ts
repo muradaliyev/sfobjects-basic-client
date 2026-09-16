@@ -582,3 +582,5 @@ export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection
     const _func = getSfObject<OI>(cfg);
     return (Object.keys(cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n, conn) }), {} as { [N in KeyOf<OI>]: SfObjActions<OI, N> });
 }
+
+export const sfObject = <OI, N extends KeyOf<OI>>(cfg: SfObjCfgIndex<OI>, n: N) => ({ info: cfg[n], select: <S extends SfRootSelect<OI, N>>(s: S[]) => s });
