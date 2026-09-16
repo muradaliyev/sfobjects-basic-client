@@ -4,7 +4,7 @@ type WrapNull<T> = T extends null ? null : never;
 type KeyOf<O> = (keyof O) & string;
 type SfPrimitiveType = string | number | boolean | bigint;
 type ChildTable<O> = { totalSize: number, done: boolean, records: O[] }
-type GetObjectTypes<OI> = { [K in KeyOf<OI>]: OI[K] }[KeyOf<OI>];
+export type GetObjectTypes<OI> = { [K in KeyOf<OI>]: OI[K] }[KeyOf<OI>];
 type IsMutable<X, Y, A> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? A : never;
 
 // selection
@@ -25,7 +25,7 @@ type SfSelect<OO, O extends OO> = {
 
 type SelectProjKeys<S, O> = { [K in KeyOf<O>]: K extends S ? K : S extends { from: K } ? K : never }[KeyOf<O>]
 
-type SfProjection<OO, O extends OO, S> = {
+export type SfProjection<OO, O extends OO, S> = {
     readonly [K in SelectProjKeys<S, O>]: WrapNull<O[K]> | (
         S extends K ? O[K] : (
             S extends { from: K, select: any[] } ? (
@@ -190,13 +190,13 @@ export type SfObjCfg = {
 
 export type SfObjCfgIndex<OI> = Record<keyof OI, SfObjCfg>;
 
-export type SaveError = {
+export type SfSaveError = {
     errorCode: string;
     message: string;
     fields?: string[];
 };
 
-export type QueryOptions = {
+export type SfQueryOptions = {
     headers?: {
         [name: string]: string;
     };
@@ -204,7 +204,7 @@ export type QueryOptions = {
     autoFetch?: boolean;
 }
 
-export type DmlOptions = {
+export type SfDmlOptions = {
     allOrNone?: boolean;
     allowRecursive?: boolean;
     headers?: {
@@ -218,33 +218,33 @@ export type DmlOptions = {
     };
 };
 
-export type QueryResult<R> = { records: R[] };
+export type SfQueryResult<R> = { records: R[] };
 
-export type SaveResult = {
+export type SfSaveResult = {
     success: true;
     id: string;
     created?: boolean;
 } | {
     success: false;
-    errors: SaveError[];
+    errors: SfSaveError[];
 };
 
-export type UpdatedResult = {
+export type SfUpdatedResult = {
     ids: string[];
     latestDateCovered: string;
 };
 
 export interface ISfConnection {
-    query: <R extends {}>(soql: string, o?: QueryOptions) => PromiseLike<QueryResult<R>>,
-    upsert: (n: string, r: any[], key: string, o?: DmlOptions) => PromiseLike<SaveResult[]>
-    update: (n: string, r: any[], o?: DmlOptions) => PromiseLike<SaveResult[]>
-    create: (n: string, r: any[], o?: DmlOptions) => PromiseLike<SaveResult[]>
-    delete: (n: string, ids: string[], o?: DmlOptions) => PromiseLike<SaveResult[]>
+    query: <R extends {}>(soql: string, o?: SfQueryOptions) => PromiseLike<SfQueryResult<R>>,
+    upsert: (n: string, r: any[], key: string, o?: SfDmlOptions) => PromiseLike<SfSaveResult[]>
+    update: (n: string, r: any[], o?: SfDmlOptions) => PromiseLike<SfSaveResult[]>
+    create: (n: string, r: any[], o?: SfDmlOptions) => PromiseLike<SfSaveResult[]>
+    delete: (n: string, ids: string[], o?: SfDmlOptions) => PromiseLike<SfSaveResult[]>
 }
 
 export interface SfSelectActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
     soql: () => string;
-    get: () => Promise<{ records: SfRootSelectProjection<OI, N, S>[] }>;
+    get: () => Promise<SfQueryResult<SfRootSelectProjection<OI, N, S>>>;
     limit: (limit: number) => SfSelectActions<OI, N, S>;
 }
 
@@ -258,10 +258,10 @@ export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<
 
 export interface SfObjActions<OI, N extends KeyOf<OI>> {
     query: <S extends SfRootSelect<OI, N>>(q: { select: S[], where?: SfRootWhere<OI, N>, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfSelectActions<OI, N, S>;
-    delete: (ids: string[], options?: DmlOptions) => PromiseLike<SaveResult[]>;
-    update: (records: SfUpdate<OI[N]>[], options?: DmlOptions) => PromiseLike<SaveResult[]>;
-    create: (records: SfCreate<OI[N]>[], options?: DmlOptions) => PromiseLike<SaveResult[]>;
-    upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: DmlOptions) => PromiseLike<SaveResult[]>;
+    delete: (ids: string[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
+    update: (records: SfUpdate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
+    create: (records: SfCreate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
+    upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S>);
 }
 
@@ -518,7 +518,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
 
         return ({
             soql,
-            get: async (options?: QueryOptions) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options), // to get rid of promiselike,            
+            get: async (options?: SfQueryOptions) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options), // to get rid of promiselike,            
             limit: (limit: number) => _query(conn, from, select, where, orderBy, limit)
         });
     }
@@ -532,13 +532,13 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
                 return _query(_conn, from, select, where, orderBy, limit);
             },
 
-            delete: (ids: string[], options?: DmlOptions) => _conn.delete(from, ids, options),
+            delete: (ids: string[], options?: SfDmlOptions) => _conn.delete(from, ids, options),
 
-            update: (records: SfUpdate<OI[N]>[], options?: DmlOptions) => _conn.update(from, records, options),
+            update: (records: SfUpdate<OI[N]>[], options?: SfDmlOptions) => _conn.update(from, records, options),
 
-            create: (records: SfCreate<OI[N]>[], options?: DmlOptions) => _conn.create(from, records, options),
+            create: (records: SfCreate<OI[N]>[], options?: SfDmlOptions) => _conn.create(from, records, options),
 
-            upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: DmlOptions) => _conn.upsert(from, records, key, options),
+            upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: SfDmlOptions) => _conn.upsert(from, records, key, options),
 
             select: <S extends SfRootSelect<OI, N>>(select: S[]) => ({
 
