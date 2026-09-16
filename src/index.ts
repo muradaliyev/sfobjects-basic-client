@@ -256,8 +256,10 @@ export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<
     where: (where: SfRootWhere<OI, N>) => (SfSelectActions<OI, N, S> & SfOrderByAction<OI, N, S>);
 }
 
-export interface SfFindActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
+export interface SfSelectAditionalActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
     find: (id: string, options?: SfQueryOptions) => Promise<SfRootSelectProjection<OI, N, S> | undefined>;
+    selection: S[];
+    //S extends SfRootSelect<OI, N>
 }
 
 export interface SfObjActions<OI, N extends KeyOf<OI>> {
@@ -266,7 +268,7 @@ export interface SfObjActions<OI, N extends KeyOf<OI>> {
     update: (records: SfUpdate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     create: (records: SfCreate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
-    select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S> & SfFindActions<OI, N, S>);
+    select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S> & SfSelectAditionalActions<OI, N, S>);
 }
 
 // functions
@@ -557,15 +559,17 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
                     orderBy: (orderBy: SfRootOrderBy<OI, N>) => _query(_conn, from, select, where, orderBy),
 
                 }),
-                
+
                 find: async (id: string, options?: SfQueryOptions) => {
-                    
+
                     const result = await _query(_conn, from, select, `Id = '${id}'`).limit(1).get(options);
-                    
+
                     if (result.records.length) {
                         return result.records[0];
                     }
-                }
+                },
+
+                selection: select
 
             })
         })
