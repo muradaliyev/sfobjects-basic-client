@@ -149,6 +149,16 @@ type MandatoryCreateProps<O> = {
 }[KeyOf<O>];
 
 
+// Update
+
+type UpdateableProps<O> = {
+    [K in keyof O]: NonNullable<O[K]> extends SfPrimitiveType ? (
+        IsMutable<{ [P in K]: O[P] }, { -readonly [P in K]: O[P] }, K>
+    ) : never
+
+}[KeyOf<O>];
+
+
 
 // Select
 
@@ -169,11 +179,11 @@ export type SfCreate<O> = { [K in MandatoryCreateProps<O>]: O[K] } & { [K in Opt
 
 // Upsert
 
-export type SfUpsert<O, K extends MandatoryCreateProps<O>> = SfCreate<O> & { [P in K]: O[P] };
+export type SfUpsert<O, K extends MandatoryCreateProps<O>/* external keys */> = SfCreate<O> & { [P in K]: O[P] };
 
 // Update
 
-export type SfUpdate<O> = { Id: string } & SfCreate<O>;
+export type SfUpdate<O> = { Id: string } & { [K in UpdateableProps<O>]+?: O[K] };
 
 
 // Basic Client
