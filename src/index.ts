@@ -9,7 +9,7 @@ type IsMutable<X, Y, A> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T ext
 
 // selection
 
-type ShortQueryStatement<OO, O extends OO, K> = { from: K, select: SfSelect<OO, O>[] }; // select must point to further generic type, otherwise will give recursive error
+type ShortQueryStatement<OO, O extends OO, K> = { from: K, select: SfSelect<OO, O>[], separateCall?: boolean }; // select must point to further generic type, otherwise will give recursive error
 
 type FullQueryStatement<OO, O extends OO, K> = ShortQueryStatement<OO, O, K> & { where?: SfWhere<OO, O>, limit?: number, orderBy?: SfOrderBy<OO, O> };
 
@@ -184,7 +184,9 @@ export type SfObjCfg = {
     dateTimeTypes: string[],
     timeTypes: string[],
     lookupTypes: Record<string, string>,
+    lookupKeys: Record<string, string>,
     childTables: Record<string, string>,
+    childKeys: Record<string, string>,
     recordTypes: Record<string, string>
 };
 
@@ -290,6 +292,8 @@ export function isPlainObject(value: unknown): value is Record<string, any> {
 }
 
 export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
+    
+    const subQueries: Record<string, string> = {}
 
     function _getCfg(objName: string) {
         return _cfg[objName as KeyOf<OI>]
@@ -340,8 +344,6 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
             'limit': limit?.toString()
         }
 
-
-
         return Object.keys(o).filter(k => !!o[k]).reduce((p, k) => ([p, k, o[k]].join(' ')), '');
     }
 
@@ -360,18 +362,33 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
 
                 if (isPlainObject(rst)) {
 
-                    const from = rst['from'];
+                    const { from } = rst;
                     const oCfg = _getCfg(objName);
+                    const separateCall = !!rst['separateCall'];
 
                     if (oCfg) {
 
-                        if (oCfg.childTables[from]) {
-                            const { select, where, limit, orderBy } = rst
-                            return `( ${_constructFullQuery(oCfg.childTables[from], from, select, where, orderBy, limit)} )`;
-                        }
+                        const { lookupKeys, lookupTypes, childKeys, childTables } = oCfg
 
-                        if (oCfg.lookupTypes[from]) {
-                            return _constructSelectStatement(oCfg.lookupTypes[from], rst['select'], [...prefixes, from])
+                        if (separateCall) {
+                            const path = [...prefixes, from].join('.');
+
+                            if (lookupTypes && lookupKeys) {
+                                const { select } = rst;
+                                subQueries[path] = _constructFullQuery(childTables[from], childTables[from], select);
+                            }
+
+                        }
+                        else {
+
+                            if (childTables[from]) {
+                                const { select, where, limit, orderBy } = rst
+                                return `( ${_constructFullQuery(childTables[from], from, select, where, orderBy, limit)} )`;
+                            }
+
+                            if (lookupTypes[from]) {
+                                return _constructSelectStatement(lookupTypes[from], rst['select'], [...prefixes, from])
+                            }
                         }
                     }
                 }
@@ -413,6 +430,22 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
             .join(', ');
     }
 
+    function _joinWhereStatements(whereStatements: string[], o?: { isLogicalOr?: boolean, isLogicalNot?: boolean }) {
+
+        if (whereStatements.length) {
+
+            const { isLogicalNot, isLogicalOr } = o || {};
+
+            const joinedStatements = whereStatements.length === 1 ? whereStatements[0] : `( ${whereStatements.join(isLogicalOr ? ' ) or ( ' : ' ) and ( ')})`;
+
+            if (isLogicalNot) {
+                return whereStatements.length > 1 ? `not (${joinedStatements})` : `not ${joinedStatements}`;
+            }
+
+            return joinedStatements;
+        }
+    }
+
     function _constructWhereStatement(
         objName: string,
         where: string | Record<string, any>,
@@ -423,7 +456,7 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
             return where;
         }
 
-        const { prefixes, isLogicalNot, isLogicalOr } = o || {};
+        const { prefixes } = o || {};
 
         const whereStatements = Object.keys(where)
             .map((propName): (string | undefined) => {
@@ -491,20 +524,22 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
                     }
                 }
             })
-            .filter(Boolean);
+            .filter(Boolean) as string[];
 
+        return _joinWhereStatements(whereStatements, o)
 
-        if (whereStatements.length) {
+        // if (whereStatements.length) {
 
-            const joinedStatements = whereStatements.length === 1 ? whereStatements[0] : `( ${whereStatements.join(isLogicalOr ? ' ) or ( ' : ' ) and ( ')})`;
+        //     const joinedStatements = whereStatements.length === 1 ? whereStatements[0] : `( ${whereStatements.join(isLogicalOr ? ' ) or ( ' : ' ) and ( ')})`;
 
-            if (isLogicalNot) {
-                return whereStatements.length > 1 ? `not (${joinedStatements})` : `not ${joinedStatements}`;
-            }
+        //     if (isLogicalNot) {
+        //         return whereStatements.length > 1 ? `not (${joinedStatements})` : `not ${joinedStatements}`;
+        //     }
 
-            return joinedStatements;
-        }
+        //     return joinedStatements;
+        // }
     }
+
 
     return _constructFullQuery;
 }
