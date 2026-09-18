@@ -258,34 +258,38 @@ export interface ISfConnection {
     delete: (n: string, ids: string[], o?: SfDmlOptions) => PromiseLike<SfSaveResult[]>
 }
 
-export interface SfSelectActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
+export interface SfQueryActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
     soql: () => string;
     get: (options?: SfQueryOptions) => Promise<SfQueryResult<SfRootSelectProjection<OI, N, S>>>;
-    limit: (limit: number) => SfSelectActions<OI, N, S>;
+    first: (options?: SfQueryOptions) => Promise<SfRootSelectProjection<OI, N, S> | undefined>;
+    //limit: (limit: number) => SfSelectActions<OI, N, S>;
+}
+
+export interface SfLimitAction<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
+    limit: (limit: number) => SfQueryActions<OI, N, S>;
 }
 
 export interface SfOrderByAction<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
-    orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => SfSelectActions<OI, N, S>;
+    orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => (SfQueryActions<OI, N, S> & SfLimitAction<OI, N, S>);
 }
 
 export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
-    where: <W extends SfRootWhere<OI, N>>(where: W) => (SfSelectActions<OI, N, S> & SfOrderByAction<OI, N, S>);
+    where: <W extends SfRootWhere<OI, N>>(where: W) => (SfQueryActions<OI, N, S> & SfOrderByAction<OI, N, S>);
 }
 
-export interface SfSelectAditionalActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
+export interface SfQueryAditionalActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
     find: (id: string, options?: SfQueryOptions) => Promise<SfRootSelectProjection<OI, N, S> | undefined>;
     retrieve: (id: string, options?: SfQueryOptions) => Promise<SfRootSelectProjection<OI, N, S>>;
     selection: S[];
-    //S extends SfRootSelect<OI, N>
 }
 
 export interface SfObjActions<OI, N extends KeyOf<OI>> {
-    query: <S extends SfRootSelect<OI, N>, W extends SfRootWhere<OI, N>>(q: { select: S[], where?: string | W, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfSelectActions<OI, N, S>;
+    query: <S extends SfRootSelect<OI, N>, W extends SfRootWhere<OI, N>>(q: { select: S[], where?: string | W, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfQueryActions<OI, N, S>;
     delete: (ids: string[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     update: (records: SfUpdate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     create: (records: SfCreate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
-    select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S> & SfSelectAditionalActions<OI, N, S>);
+    select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfQueryActions<OI, N, S> & SfWhereActions<OI, N, S> & SfQueryAditionalActions<OI, N, S>);
 }
 
 export class SfBasicClientSaveError extends Error {
@@ -564,14 +568,19 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
         where?: string | W,
         orderBy?: R,
         limit?: number
-    ): SfSelectActions<OI, N, S> {
+    ): SfQueryActions<OI, N, S> {
 
         const soql = () => constructSoql(_cfg)(from, from, select, where, orderBy, limit);
 
+        const get = async (options: SfQueryOptions | undefined = o?.query) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options); // to get rid of promiselike,                        
+
         return ({
             soql,
-            get: async (options: SfQueryOptions | undefined = o?.query) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options), // to get rid of promiselike,            
-            limit: (limit: number) => _query(conn, from, select, where, orderBy, limit)
+            get,
+            first: async (options: SfQueryOptions | undefined = o?.query) => {
+                const result = (await get(options)).records;
+                return result.length ? result[0] : undefined;
+            }
         });
     }
 
@@ -582,7 +591,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
         id: string,
         options: SfQueryOptions | undefined = o?.query
     ) {
-        return _query(conn, from, select, `Id = '${id}'`).limit(1).get(options);
+        return _query(conn, from, select, `Id = '${id}'`, undefined, 1).first(options);
     }
 
     return <N extends KeyOf<OI>>(from: N, _conn: ISfConnection): SfObjActions<OI, N> => {
@@ -606,34 +615,40 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
 
                 ..._query(_conn, from, select),
 
-                orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => _query(_conn, from, select, undefined, orderBy),
+                orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => ({
+                    ..._query(_conn, from, select, undefined, orderBy),
+                    limit: (limit: number) => _query(_conn, from, select, undefined, orderBy, limit)
+                }),
+
+                limit: (limit: number) => _query(_conn, from, select, undefined, undefined, limit),
 
                 where: <W extends SfRootWhere<OI, N>>(where: string | W) => ({
 
                     ..._query(_conn, from, select, where),
 
-                    orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => _query(_conn, from, select, where, orderBy),
+                    orderBy: <R extends SfRootOrderBy<OI, N>>(orderBy: R) => ({
+                        ..._query(_conn, from, select, where, orderBy),
+                        limit: (limit: number) => _query(_conn, from, select, where, orderBy, limit)
+                    }),
+
+                    limit: (limit: number) => _query(_conn, from, select, where, undefined, limit)
 
                 }),
 
                 find: async (id: string, options: SfQueryOptions | undefined = o?.query) => {
 
-                    const result = await _queryOne(_conn, from, select, id, options);
-
-                    if (result.records.length) {
-                        return result.records[0];
-                    }
+                    return _queryOne(_conn, from, select, id, options);
                 },
 
                 retrieve: async (id: string, options: SfQueryOptions | undefined = o?.query) => {
 
                     const result = await _queryOne(_conn, from, select, id, options);
 
-                    if (!result.records.length) {
+                    if (!result) {
                         throw new SfBasicClientReadError(`Record with id '${id}' is not found in '${from}'.`);
                     }
 
-                    return result.records[0];
+                    return result;
                 },
 
                 selection: select
@@ -645,7 +660,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
 
 
 export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection, options?: SfClientOptions) => {
-    
+
     const __getObject = <N extends KeyOf<OI>>(from: N) => getSfObject<OI>(cfg, options)(from, conn);
 
     return {
