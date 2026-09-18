@@ -274,7 +274,7 @@ export interface SfOrderByAction<OI, N extends KeyOf<OI>, S extends SfRootSelect
 }
 
 export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
-    where: <W extends SfRootWhere<OI, N>>(where: W) => (SfQueryActions<OI, N, S> & SfOrderByAction<OI, N, S>);
+    where: <W extends SfRootWhere<OI, N>>(where: W) => (SfQueryActions<OI, N, S> & SfOrderByAction<OI, N, S> & SfLimitAction<OI, N, S>);
 }
 
 export interface SfQueryAditionalActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
