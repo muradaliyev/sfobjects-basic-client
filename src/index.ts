@@ -288,10 +288,18 @@ export interface SfObjActions<OI, N extends KeyOf<OI>> {
     select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S> & SfSelectAditionalActions<OI, N, S>);
 }
 
-export class SfBasicClientError extends Error {
+export class SfBasicClientSaveError extends Error {
     constructor(public errors: SfSaveError[]) {
         super('Salesforce error(s): ' + errors.map(e => `[${e.errorCode}] ${e.message}, field(s): ${e.fields?.join(',')}`).join(';\r\n'))
-        this.name = 'SfBasicClientError';
+        this.name = 'SfBasicClientSaveError';
+        Object.setPrototypeOf(this, new.target.prototype);
+    }
+}
+
+export class SfBasicClientReadError extends Error {
+    constructor(public error: string) {
+        super('Salesforce error: ' + error)
+        this.name = 'SfBasicClientReadError';
         Object.setPrototypeOf(this, new.target.prototype);
     }
 }
@@ -364,8 +372,6 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
             'order by': orderBy && _constructOrderByStatement(objName, orderBy),
             'limit': limit?.toString()
         }
-
-
 
         return Object.keys(o).filter(k => !!o[k]).reduce((p, k) => ([p, k, o[k]].join(' ')), '');
     }
@@ -541,7 +547,7 @@ function processSaveResult(sr: SfSaveResult[], breakOnError?: boolean): SfSaveRe
         const _errors: SfSaveError[] = sr.filter(r => (r.success !== true)).map(r => r.errors).flat();
 
         if (_errors.length) {
-            throw new SfBasicClientError(_errors);
+            throw new SfBasicClientSaveError(_errors);
         }
     }
 
@@ -624,14 +630,13 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
                     const result = await _queryOne(_conn, from, select, id, options);
 
                     if (!result.records.length) {
-                        throw new Error(`Record with id '${id}' is not found in '${from}'.`);
+                        throw new SfBasicClientReadError(`Record with id '${id}' is not found in '${from}'.`);
                     }
 
                     return result.records[0];
                 },
 
                 selection: select
-
             })
         })
     };
