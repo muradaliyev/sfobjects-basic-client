@@ -228,6 +228,12 @@ export type SfDmlOptions = {
     };
 };
 
+export type SfClientOptions = {
+    breakOnError?: boolean
+    query?: SfQueryOptions;
+    dml?: SfDmlOptions;
+}
+
 export type SfQueryResult<R> = { records: R[] };
 
 export type SfSaveResult = {
@@ -268,6 +274,7 @@ export interface SfWhereActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<
 
 export interface SfSelectAditionalActions<OI, N extends KeyOf<OI>, S extends SfRootSelect<OI, N>> {
     find: (id: string, options?: SfQueryOptions) => Promise<SfRootSelectProjection<OI, N, S> | undefined>;
+    retrieve: (id: string, options?: SfQueryOptions) => Promise<SfRootSelectProjection<OI, N, S>>;
     selection: S[];
     //S extends SfRootSelect<OI, N>
 }
@@ -279,6 +286,14 @@ export interface SfObjActions<OI, N extends KeyOf<OI>> {
     create: (records: SfCreate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfSelectActions<OI, N, S> & SfWhereActions<OI, N, S> & SfSelectAditionalActions<OI, N, S>);
+}
+
+export class SfBasicClientError extends Error {
+    constructor(public errors: SfSaveError[]) {
+        super('Salesforce error(s): ' + errors.map(e => `[${e.errorCode}] ${e.message}, field(s): ${e.fields?.join(',')}`).join(';\r\n'))
+        this.name = 'SfBasicClientError';
+        Object.setPrototypeOf(this, new.target.prototype);
+    }
 }
 
 // functions
@@ -519,7 +534,22 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
     return _constructFullQuery;
 }
 
-export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
+function processSaveResult(sr: SfSaveResult[], breakOnError?: boolean): SfSaveResult[] {
+
+    if (breakOnError) {
+
+        const _errors: SfSaveError[] = sr.filter(r => (r.success !== true)).map(r => r.errors).flat();
+
+        if (_errors.length) {
+            throw new SfBasicClientError(_errors);
+        }
+    }
+
+    return sr;
+}
+
+export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
+
 
     function _query<S extends SfRootSelect<OI, N>, N extends KeyOf<OI>>(
         conn: ISfConnection,
@@ -534,9 +564,19 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
 
         return ({
             soql,
-            get: async (options?: SfQueryOptions) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options), // to get rid of promiselike,            
+            get: async (options: SfQueryOptions | undefined = o?.query) => await conn.query<SfRootSelectProjection<OI, N, S>>(soql(), options), // to get rid of promiselike,            
             limit: (limit: number) => _query(conn, from, select, where, orderBy, limit)
         });
+    }
+
+    function _queryOne<S extends SfRootSelect<OI, N>, N extends KeyOf<OI>>(
+        conn: ISfConnection,
+        from: N,
+        select: S[],
+        id: string,
+        options: SfQueryOptions | undefined = o?.query
+    ) {
+        return _query(conn, from, select, `Id = '${id}'`).limit(1).get(options);
     }
 
     return <N extends KeyOf<OI>>(from: N, _conn: ISfConnection): SfObjActions<OI, N> => {
@@ -548,13 +588,13 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
                 return _query(_conn, from, select, where, orderBy, limit);
             },
 
-            delete: (ids: string[], options?: SfDmlOptions) => _conn.delete(from, ids, options),
+            delete: async (ids: string[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.delete(from, ids, options), o?.breakOnError),
 
-            update: (records: SfUpdate<OI[N]>[], options?: SfDmlOptions) => _conn.update(from, records, options),
+            update: async (records: SfUpdate<OI[N]>[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.update(from, records, options), o?.breakOnError),
 
-            create: (records: SfCreate<OI[N]>[], options?: SfDmlOptions) => _conn.create(from, records, options),
+            create: async (records: SfCreate<OI[N]>[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.create(from, records, options), o?.breakOnError),
 
-            upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: SfDmlOptions) => _conn.upsert(from, records, key, options),
+            upsert: async <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.upsert(from, records, key, options), o?.breakOnError),
 
             select: <S extends SfRootSelect<OI, N>>(select: S[]) => ({
 
@@ -570,13 +610,24 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
 
                 }),
 
-                find: async (id: string, options?: SfQueryOptions) => {
+                find: async (id: string, options: SfQueryOptions | undefined = o?.query) => {
 
-                    const result = await _query(_conn, from, select, `Id = '${id}'`).limit(1).get(options);
+                    const result = await _queryOne(_conn, from, select, id, options);
 
                     if (result.records.length) {
                         return result.records[0];
                     }
+                },
+
+                retrieve: async (id: string, options: SfQueryOptions | undefined = o?.query) => {
+
+                    const result = await _queryOne(_conn, from, select, id, options);
+
+                    if (!result.records.length) {
+                        throw new Error(`Record with id '${id}' is not found in '${from}'.`);
+                    }
+
+                    return result.records[0];
                 },
 
                 selection: select
@@ -588,8 +639,8 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>) {
 }
 
 
-export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection) => {
-    const _func = getSfObject<OI>(cfg);
+export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection, options?: SfClientOptions) => {
+    const _func = getSfObject<OI>(cfg, options);
     return (Object.keys(cfg) as KeyOf<OI>[]).reduce((p, n) => ({ ...p, [n]: _func(n, conn) }), {} as { [N in KeyOf<OI>]: SfObjActions<OI, N> });
 }
 
