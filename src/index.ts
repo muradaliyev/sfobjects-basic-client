@@ -285,10 +285,10 @@ export interface SfQueryAditionalActions<OI, N extends KeyOf<OI>, S extends SfRo
 
 export interface SfObjActions<OI, N extends KeyOf<OI>> {
     query: <S extends SfRootSelect<OI, N>, W extends SfRootWhere<OI, N>>(q: { select: S[], where?: string | W, orderBy?: SfRootOrderBy<OI, N>, limit?: number }) => SfQueryActions<OI, N, S>;
-    delete: (ids: string[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
-    update: (records: SfUpdate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
-    create: (records: SfCreate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
-    upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
+    delete: (ids: string | string[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
+    update: (records: SfUpdate<OI[N]> | SfUpdate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
+    create: (records: SfCreate<OI[N]> | SfCreate<OI[N]>[], options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
+    upsert: <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K> | SfUpsert<OI[N], K>[], key: K, options?: SfDmlOptions) => PromiseLike<SfSaveResult[]>;
     select: <S extends SfRootSelect<OI, N>>(select: S[]) => (SfQueryActions<OI, N, S> & SfWhereActions<OI, N, S> & SfQueryAditionalActions<OI, N, S>);
 }
 
@@ -558,6 +558,19 @@ function processSaveResult(sr: SfSaveResult[], breakOnError?: boolean): SfSaveRe
     return sr;
 }
 
+function pluralize<T>(a: T | T[]) {
+
+    if (a === undefined) {
+        return [];
+    }
+
+    if (Array.isArray(a)) {
+        return a;
+    }
+
+    return [a];
+}
+
 export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
 
 
@@ -603,13 +616,13 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
                 return _query(_conn, from, select, where, orderBy, limit);
             },
 
-            delete: async (ids: string[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.delete(from, ids, options), o?.breakOnError),
+            delete: async (ids: string | string[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.delete(from, pluralize(ids), options), o?.breakOnError),
 
-            update: async (records: SfUpdate<OI[N]>[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.update(from, records, options), o?.breakOnError),
+            update: async (records: SfUpdate<OI[N]> | SfUpdate<OI[N]>[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.update(from, pluralize(records), options), o?.breakOnError),
 
-            create: async (records: SfCreate<OI[N]>[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.create(from, records, options), o?.breakOnError),
+            create: async (records: SfCreate<OI[N]> | SfCreate<OI[N]>[], options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.create(from, pluralize(records), options), o?.breakOnError),
 
-            upsert: async <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K>[], key: K, options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.upsert(from, records, key, options), o?.breakOnError),
+            upsert: async <K extends MandatoryCreateProps<OI[N]>>(records: SfUpsert<OI[N], K> | SfUpsert<OI[N], K>[], key: K, options: SfDmlOptions | undefined = o?.dml) => processSaveResult(await _conn.upsert(from, pluralize(records), key, options), o?.breakOnError),
 
             select: <S extends SfRootSelect<OI, N>>(select: S[]) => ({
 
