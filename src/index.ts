@@ -55,6 +55,8 @@ const OP_KEYS_IN = ['in'] as const;
 const OP_KEYS_NIN = ['nin', 'not in'] as const;
 const OP_KEYS_LIKE = ['like'] as const;
 const OP_KEYS_NLIKE = ['nlike', 'not like'] as const;
+const OP_KEYS_IN_SEMIJOIN = ['sj', 'semi-join'] as const;
+const OP_KEYS_NOT_SEMIJOIN = ['nsj', 'semi-join not'] as const;
 
 const SINGULAR_OP_KEYS = [
     ...OP_KEYS_EQ,
@@ -78,10 +80,17 @@ const LOGICAL_OP_KEYS = [
     OP_KEY_NOT
 ] as const;
 
+const SEMIJOIN_OP_KEYS = [
+    ...OP_KEYS_IN_SEMIJOIN,
+    ...OP_KEYS_NOT_SEMIJOIN
+] as const;
+
+
 type SfSingularOpKeys = typeof SINGULAR_OP_KEYS[number];
 type SfPluralOpKeys = typeof PLURAL_OP_KEYS[number];
 type SfLogicalOpKeys = typeof LOGICAL_OP_KEYS[number];
-type SfValueOpKeys = SfSingularOpKeys | SfPluralOpKeys;
+type SfSemiJoinOpKeys = typeof SEMIJOIN_OP_KEYS[number];
+type SfValueOpKeys = SfSingularOpKeys | SfPluralOpKeys | SfSemiJoinOpKeys;
 
 interface SfOpRule {
     ops: readonly SfValueOpKeys[];
@@ -103,21 +112,49 @@ const OP_RULES: SfOpRule[] = [
     { ops: OP_KEYS_NLIKE, soqlOp: 'like', isNot: true },
 ]
 
+
+
 interface SfWhereOp<OP extends SfValueOpKeys, V> { op: OP; value: V; }
+
+type PrimitiveProps<O> = { [K in KeyOf<O>]: NonNullable<O[K]> extends SfPrimitiveType ? K : never }[KeyOf<O>];
 
 type ParentOrPrimitiveProps<OO, O extends OO> = { [K in KeyOf<O>]: NonNullable<O[K]> extends SfPrimitiveType ? K : NonNullable<O[K]> extends OO ? K : never }[KeyOf<O>];
 
 type SfWhere<OO, O extends OO> = {
     [K in ParentOrPrimitiveProps<OO, O>]+?: (
         NonNullable<O[K]> extends SfPrimitiveType ? (
-            O[K] | O[K][] | { [OPK in SfSingularOpKeys]: SfWhereOp<OPK, O[K]> }[SfSingularOpKeys] | { [OPK in SfPluralOpKeys]: SfWhereOp<OPK, O[K][]> }[SfPluralOpKeys]
+            O[K] |
+            O[K][] |
+            { [OPK in SfSingularOpKeys]: SfWhereOp<OPK, O[K]> }[SfSingularOpKeys] |
+            { [OPK in SfPluralOpKeys]: SfWhereOp<OPK, O[K][]> }[SfPluralOpKeys]
         ) : (
             NonNullable<O[K]> extends OO ? SfWhere<OO, NonNullable<O[K]>> : never
         )
     )
 } | { [K in SfLogicalOpKeys]+?: SfWhere<OO, O> } | SfWhere<OO, O>[];
 
+type SfWhereSemiJoin<OI, O> = {
+    [K in KeyOf<O>]+?: NonNullable<O[K]> extends string ? { [OPK in SfSemiJoinOpKeys]: SfWhereOp<OPK, SfWhereSemiJoinOps<OI>> }[SfSemiJoinOpKeys] : never
+}
 
+type SfWhereSemiJoinOpSelect<O> = { [K in KeyOf<O>]: NonNullable<O[K]> extends string ? K : never }[KeyOf<O>]
+
+interface SfWhereSemiJoinOp<OI, N extends KeyOf<OI>> {
+    from: N;
+    select: SfWhereSemiJoinOpSelect<OI[N]>;
+    where?: SfWhereSemiJoinWhere<OI[N]>;
+}
+
+type SfWhereSemiJoinOps<OI> = { [N in KeyOf<OI>]: SfWhereSemiJoinOp<OI, N> }[KeyOf<OI>];
+
+type SfWhereSemiJoinWhere<O> = {
+    [K in PrimitiveProps<O>]+?: (
+        O[K] |
+        O[K][] |
+        { [OPK in SfSingularOpKeys]: SfWhereOp<OPK, O[K]> }[SfSingularOpKeys] |
+        { [OPK in SfPluralOpKeys]: SfWhereOp<OPK, O[K][]> }[SfPluralOpKeys]
+    )
+} | { [K in SfLogicalOpKeys]+?: SfWhereSemiJoinWhere<O> } | SfWhereSemiJoinWhere<O>[];
 
 // order by
 
@@ -164,7 +201,7 @@ type UpdateableProps<O> = {
 
 export type SfRootSelect<OI, N extends KeyOf<OI>> = SfSelect<GetObjectTypes<OI>, OI[N]>;
 
-export type SfRootWhere<OI, N extends KeyOf<OI>> = SfWhere<GetObjectTypes<OI>, OI[N]>;
+export type SfRootWhere<OI, N extends KeyOf<OI>> = SfWhere<GetObjectTypes<OI>, OI[N]> | SfWhereSemiJoin<OI, OI[N]>;
 
 export type SfRootOrderBy<OI, N extends KeyOf<OI>> = SfOrderBy<GetObjectTypes<OI>, OI[N]>;
 
