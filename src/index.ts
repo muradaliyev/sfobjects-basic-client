@@ -55,8 +55,6 @@ const OP_KEYS_IN = ['in'] as const;
 const OP_KEYS_NIN = ['nin', 'not in'] as const;
 const OP_KEYS_LIKE = ['like'] as const;
 const OP_KEYS_NLIKE = ['nlike', 'not like'] as const;
-const OP_KEYS_IN_SEMIJOIN = ['sj', 'semi-join'] as const;
-const OP_KEYS_NOT_SEMIJOIN = ['nsj', 'semi-join not'] as const;
 
 const SINGULAR_OP_KEYS = [
     ...OP_KEYS_EQ,
@@ -69,7 +67,7 @@ const SINGULAR_OP_KEYS = [
     ...OP_KEYS_NLIKE
 ] as const;
 
-const PLURAL_OP_KEYS = [
+const PLURAL_OR_SJ_OP_KEYS = [
     ...OP_KEYS_IN,
     ...OP_KEYS_NIN
 ] as const;
@@ -80,22 +78,18 @@ const LOGICAL_OP_KEYS = [
     OP_KEY_NOT
 ] as const;
 
-const SEMIJOIN_OP_KEYS = [
-    ...OP_KEYS_IN_SEMIJOIN,
-    ...OP_KEYS_NOT_SEMIJOIN
-] as const;
-
 
 type SfSingularOpKeys = typeof SINGULAR_OP_KEYS[number];
-type SfPluralOpKeys = typeof PLURAL_OP_KEYS[number];
+type SfPluralOpKeys = typeof PLURAL_OR_SJ_OP_KEYS[number];
 type SfLogicalOpKeys = typeof LOGICAL_OP_KEYS[number];
-type SfSemiJoinOpKeys = typeof SEMIJOIN_OP_KEYS[number];
-type SfValueOpKeys = SfSingularOpKeys | SfPluralOpKeys | SfSemiJoinOpKeys;
+
+type SfValueOpKeys = SfSingularOpKeys | SfPluralOpKeys;
 
 interface SfOpRule {
     ops: readonly SfValueOpKeys[];
     isNot?: boolean;
     isPlural?: boolean;
+    isSemiJoin?: boolean;
     soqlOp: string;
 }
 
@@ -106,55 +100,39 @@ const OP_RULES: SfOpRule[] = [
     { ops: OP_KEYS_LTE, soqlOp: '<=' },
     { ops: OP_KEYS_GT, soqlOp: '>' },
     { ops: OP_KEYS_GTE, soqlOp: '>=' },
-    { ops: OP_KEYS_IN, soqlOp: 'in', isPlural: true },
-    { ops: OP_KEYS_NIN, soqlOp: 'in', isNot: true, isPlural: true },
+    { ops: OP_KEYS_IN, soqlOp: 'in', isPlural: true, isSemiJoin: true },
+    { ops: OP_KEYS_NIN, soqlOp: 'in', isNot: true, isPlural: true, isSemiJoin: true },
     { ops: OP_KEYS_LIKE, soqlOp: 'like' },
-    { ops: OP_KEYS_NLIKE, soqlOp: 'like', isNot: true },
+    { ops: OP_KEYS_NLIKE, soqlOp: 'like', isNot: true }
 ]
-
-
 
 interface SfWhereOp<OP extends SfValueOpKeys, V> { op: OP; value: V; }
 
-type PrimitiveProps<O> = { [K in KeyOf<O>]: NonNullable<O[K]> extends SfPrimitiveType ? K : never }[KeyOf<O>];
-
 type ParentOrPrimitiveProps<OO, O extends OO> = { [K in KeyOf<O>]: NonNullable<O[K]> extends SfPrimitiveType ? K : NonNullable<O[K]> extends OO ? K : never }[KeyOf<O>];
 
-type SfWhere<OO, O extends OO> = {
+type SfWhere<OO, O extends OO, OI = never> = {
     [K in ParentOrPrimitiveProps<OO, O>]+?: (
         NonNullable<O[K]> extends SfPrimitiveType ? (
             O[K] |
             O[K][] |
             { [OPK in SfSingularOpKeys]: SfWhereOp<OPK, O[K]> }[SfSingularOpKeys] |
-            { [OPK in SfPluralOpKeys]: SfWhereOp<OPK, O[K][]> }[SfPluralOpKeys]
+            { [OPK in SfPluralOpKeys]: SfWhereOp<OPK, O[K][] | (OI extends never ? never : SfWhereSemiJoinOps<OI>)> }[SfPluralOpKeys]
         ) : (
             NonNullable<O[K]> extends OO ? SfWhere<OO, NonNullable<O[K]>> : never
         )
     )
 } | { [K in SfLogicalOpKeys]+?: SfWhere<OO, O> } | SfWhere<OO, O>[];
 
-type SfWhereSemiJoin<OI, O> = {
-    [K in KeyOf<O>]+?: NonNullable<O[K]> extends string ? { [OPK in SfSemiJoinOpKeys]: SfWhereOp<OPK, SfWhereSemiJoinOps<OI>> }[SfSemiJoinOpKeys] : never
-}
 
 type SfWhereSemiJoinOpSelect<O> = { [K in KeyOf<O>]: NonNullable<O[K]> extends string ? K : never }[KeyOf<O>]
 
 interface SfWhereSemiJoinOp<OI, N extends KeyOf<OI>> {
     from: N;
     select: SfWhereSemiJoinOpSelect<OI[N]>;
-    where?: SfWhereSemiJoinWhere<OI[N]>;
+    where?: SfWhere<GetObjectTypes<OI>, OI[N]>;
 }
 
 type SfWhereSemiJoinOps<OI> = { [N in KeyOf<OI>]: SfWhereSemiJoinOp<OI, N> }[KeyOf<OI>];
-
-type SfWhereSemiJoinWhere<O> = {
-    [K in PrimitiveProps<O>]+?: (
-        O[K] |
-        O[K][] |
-        { [OPK in SfSingularOpKeys]: SfWhereOp<OPK, O[K]> }[SfSingularOpKeys] |
-        { [OPK in SfPluralOpKeys]: SfWhereOp<OPK, O[K][]> }[SfPluralOpKeys]
-    )
-} | { [K in SfLogicalOpKeys]+?: SfWhereSemiJoinWhere<O> } | SfWhereSemiJoinWhere<O>[];
 
 // order by
 
@@ -201,7 +179,7 @@ type UpdateableProps<O> = {
 
 export type SfRootSelect<OI, N extends KeyOf<OI>> = SfSelect<GetObjectTypes<OI>, OI[N]>;
 
-export type SfRootWhere<OI, N extends KeyOf<OI>> = SfWhere<GetObjectTypes<OI>, OI[N]> | SfWhereSemiJoin<OI, OI[N]>;
+export type SfRootWhere<OI, N extends KeyOf<OI>> = SfWhere<GetObjectTypes<OI>, OI[N], OI>;// | SfWhereSemiJoin<OI, OI[N]>;
 
 export type SfRootOrderBy<OI, N extends KeyOf<OI>> = SfOrderBy<GetObjectTypes<OI>, OI[N]>;
 
@@ -394,8 +372,8 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
         }
 
         throw `Unupported value type for where statement`;
-
     }
+
 
     function _constructFullQuery(
         objName: string,
@@ -485,6 +463,16 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
             .join(', ');
     }
 
+    function _constructSemiJoinStatement(sj: Record<string, any>) {
+
+        const { from, select, where } = sj;
+
+        if (typeof from === 'string' && typeof select === 'string' && from && select) {
+            return `(${_constructFullQuery(from, from, [select], where)})`;
+        }
+    }
+
+
     function _constructWhereStatement(
         objName: string,
         where: string | Record<string, any>,
@@ -527,15 +515,24 @@ export function constructSoql<OI>(_cfg: SfObjCfgIndex<OI>) {
 
                                 if (opRule) {
 
-                                    const { soqlOp, isNot, isPlural } = opRule;
+                                    const { soqlOp, isNot, isPlural, isSemiJoin } = opRule;
 
-                                    if ((isPlural ?? false) === Array.isArray(value)) {
+                                    if (isSemiJoin && isPlainObject(value)) {
+                                        return [
+                                            keyWithPrefix,
+                                            `${isNot ? 'not ' : ''}${soqlOp}`,
+                                            _constructSemiJoinStatement(value)
+                                        ]
+                                            .join(' ');
+                                    }
+
+                                    else if ((isPlural ?? false) === Array.isArray(value)) {
 
                                         return [
                                             isNot ? 'not (' : '',
                                             keyWithPrefix,
                                             soqlOp,
-                                            Array.isArray(value) ? `( ${value.map(v => _escapeVal(objName, propName, v)).join(',')} )` : _escapeVal(objName, propName, value),
+                                            Array.isArray(value) ? `( ${value.map(v => _escapeVal(objName, propName, v)).join(', ')} )` : _escapeVal(objName, propName, value),
                                             isNot ? ')' : '',
                                         ]
                                             .filter(Boolean)
