@@ -1,5 +1,7 @@
 // utility
 
+import { idEquals, normalizeId, toSuperShortId } from "./utils";
+
 type WrapNull<T> = T extends null ? null : never;
 type KeyOf<O> = (keyof O) & string;
 type SfPrimitiveType = string | number | boolean | bigint;
@@ -712,7 +714,7 @@ export type SfObjectFlat<O> = {
     NonNullable<O[K]> extends SfPrimitiveType ? O[K] :
     NonNullable<O[K]> extends ChildTable<infer CO> ? SfObjectFlat<CO> :
     SfObjectFlat<NonNullable<O[K]>>
-} & { ['{}']: O }
+} & { ['{...}']: O }
 
 export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection, options?: SfClientOptions): SfObjectsIndex<OI> => {
 
@@ -731,5 +733,8 @@ export const sfObject = <OI, N extends KeyOf<OI>>(cfg: SfObjCfgIndex<OI>, n: N) 
         value,
         asProjection: (v: any) => v as SfRootSelectProjection<OI, N, S>,
         asFlatProjection: (v: any) => v as SfObjectFlat<SfRootSelectProjection<OI, N, S>>
-    })
+    }),
+    toSuperShortId: (id: string) => toSuperShortId(id, cfg[n].objectPrefix),
+    normalizeId: (id: string) => normalizeId(id, cfg[n].objectPrefix),
+    idEquals: (a: string, b: string) => idEquals(a, b, cfg[n].objectPrefix)
 });
