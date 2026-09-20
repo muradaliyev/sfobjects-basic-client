@@ -712,7 +712,7 @@ export type SfObjectFlat<O> = {
     NonNullable<O[K]> extends SfPrimitiveType ? O[K] :
     NonNullable<O[K]> extends ChildTable<infer CO> ? SfObjectFlat<CO> :
     SfObjectFlat<NonNullable<O[K]>>
-}
+} & { ['{}']: O }
 
 export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection, options?: SfClientOptions): SfObjectsIndex<OI> => {
 
