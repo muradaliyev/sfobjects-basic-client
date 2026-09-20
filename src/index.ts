@@ -707,6 +707,12 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
 
 export type SfObjectsIndex<OI> = { [N in KeyOf<OI>]: SfObjActions<OI, N> } & { __getObject: <N extends KeyOf<OI>>(from: N) => SfObjActions<OI, N> };
 
+export type SfObjectFlat<O> = {
+    [K in KeyOf<O>]:
+    NonNullable<O[K]> extends SfPrimitiveType ? O[K] :
+    NonNullable<O[K]> extends ChildTable<infer CO> ? SfObjectFlat<CO> :
+    SfObjectFlat<NonNullable<O[K]>>
+}
 
 export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection, options?: SfClientOptions): SfObjectsIndex<OI> => {
 
@@ -718,4 +724,12 @@ export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection
     };
 }
 
-export const sfObject = <OI, N extends KeyOf<OI>>(cfg: SfObjCfgIndex<OI>, n: N) => ({ info: cfg[n], select: <S extends SfRootSelect<OI, N>>(s: S[]) => s });
+export const sfObject = <OI, N extends KeyOf<OI>>(cfg: SfObjCfgIndex<OI>, n: N) => ({
+    info: cfg[n],
+    select: <S extends SfRootSelect<OI, N>>(s: S[]) => s,
+    wrapSelection: <S extends SfRootSelect<OI, N>>(value: S[]) => ({
+        value,
+        asProjection: (v: any) => v as SfRootSelectProjection<OI, N, S>,
+        asFlatProjection: (v: any) => v as SfObjectFlat<SfRootSelectProjection<OI, N, S>>
+    })
+});
