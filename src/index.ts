@@ -707,7 +707,7 @@ export function getSfObject<OI>(_cfg: SfObjCfgIndex<OI>, o?: SfClientOptions) {
 
 }
 
-export type SfObjectsIndex<OI> = { [N in KeyOf<OI>]: SfObjActions<OI, N> } & { __getObject: <N extends KeyOf<OI>>(from: N) => SfObjActions<OI, N> };
+export type SfObjectActionsIndex<OI> = { [N in KeyOf<OI>]: SfObjActions<OI, N> } & { __getObject: <N extends KeyOf<OI>>(from: N) => SfObjActions<OI, N> };
 
 export type SfObjectFlat<O> = {
     [K in KeyOf<O>]:
@@ -716,7 +716,7 @@ export type SfObjectFlat<O> = {
     SfObjectFlat<NonNullable<O[K]>>
 } & { ['{...}']: O }
 
-export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection, options?: SfClientOptions): SfObjectsIndex<OI> => {
+export const getSfObjects = <OI>(cfg: SfObjCfgIndex<OI>) => (conn: ISfConnection, options?: SfClientOptions): SfObjectActionsIndex<OI> => {
 
     const __getObject = <N extends KeyOf<OI>>(from: N) => getSfObject<OI>(cfg, options)(from, conn);
 
